@@ -99,6 +99,19 @@ For multiple Ollama hosts / Ollama Cloud keys with failover, see `OLLAMA_ENDPOIN
 
 Without a configured provider, the AI panel shows "offline" but all other features work.
 
+### Generative UI (experimental, OpenUI Lang)
+
+With `AI_GENERATIVE_UI=1`, chat and **Explain** answers may include interactive UI built from a small workbench component library: `Stack`, `Card`, `Text`, `Callout`, `KeyValue`, `Table`, `CodeBlock`, `ProposedEdit`. The model writes [OpenUI Lang](https://www.openui.com/docs/openui-lang) in fenced ```` ```openui-lang ```` blocks (inline mode: plain text by default); `@openuidev/react-lang`'s `Renderer` draws them progressively as they stream.
+
+- **Single contract:** `src/lib/ai/generative-ui/components.ts` defines names, descriptions and zod prop schemas once. The server builds the system prompt from it (`prompt.ts`, no React), and the client attaches shadcn renderers (`src/features/workbench/ai-assistant/generative-ui/library.tsx`). No CLI-generated spec to keep in sync.
+- **Edits stay review-only:** `ProposedEdit` never writes. Its *Review diff* button emits a `workbench.propose_edit` action, which fills the existing diff-then-Apply flow for the document the message was generated against. All other action types (`OpenUrl`, …) are ignored.
+- **Only `openui-lang` fences are UI:** ```` ```json ````/```` ```yaml ```` blocks stay text (`segments.ts`). A finished block that parses to nothing falls back to showing its source.
+- **Opt-in on both sides:** the server flag gates the prompt; the client requests it and the response header `X-Generative-UI` confirms it. With the flag off, prompts and responses are unchanged.
+- **Cost:** the component prompt is about 1.4k tokens. On Ollama, raise the context window on the server (e.g. `OLLAMA_CONTEXT_LENGTH=8192`), or long documents will be truncated silently.
+- **Measure before enabling:** `bun run eval:genui -- --runs 3 --min-rate 0.8` runs the real prompt against your configured model and reports the clean-parse rate.
+- **Not used:** OpenUI Gateway and Autofix (paid Thesys cloud, would send prompts off-box) and `@openuidev/react-ui` (requires zustand 4; this app uses zustand 5).
+- **Telemetry:** `@openuidev/lang-core` sends pseudonymous install telemetry from its `postinstall` script unless `OPENUI_TELEMETRY_DISABLED=1` (or `DO_NOT_TRACK=1`) is set. Runtime telemetry is opt-in and stays off.
+
 ## Project Structure
 
 ```
@@ -173,6 +186,8 @@ bun run build      # Production build (standalone output)
 bun run start      # Start production server
 bun run lint       # Run ESLint
 bun run lint --fix # Auto-fix lint errors
+bun run test       # Unit tests (bun test)
+bun run eval:genui # Generative-UI reliability eval against the configured model
 bun run db:push    # Push schema to SQLite
 bun run db:generate # Generate Prisma client
 bun run db:migrate # Run migrations

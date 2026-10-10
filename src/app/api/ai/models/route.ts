@@ -6,6 +6,7 @@ import {
   getOllamaClient,
   getOllamaEndpointHealth,
 } from "@/lib/ai/server";
+import { isGenerativeUiEnabled } from "@/lib/ai/generative-ui/prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,6 +77,7 @@ export async function GET() {
       available,
     },
     models: [{ id: model, name: model }],
+    features: { generativeUi: isGenerativeUiEnabled() },
     ...(endpoints ? { endpoints } : {}),
   });
 }

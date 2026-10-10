@@ -6,6 +6,7 @@ import {
   getOpenAICompatible,
   stripCodeFence,
 } from "@/lib/ai/server";
+import { getGenerativeUiPrompt, isGenerativeUiEnabled } from "@/lib/ai/generative-ui/prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,11 +22,15 @@ interface ExplainRequestBody {
     startColumn: number;
     endColumn: number;
   };
+  /** Client opt-in; honoured only when the server has AI_GENERATIVE_UI enabled. */
+  generativeUi?: boolean;
 }
 
 interface ExplainResponse {
   explanation: string;
   ambiguity: string[];
+  /** "openui": `explanation` is text with ```openui-lang blocks. Absent = plain text. */
+  format?: "openui";
 }
 
 /**
@@ -83,6 +88,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     "}",
   ].join("\n");
 
+  if (body.generativeUi === true && isGenerativeUiEnabled()) {
+    return explainAsGenerativeUi(body.source, contextParts);
+  }
+
   try {
     const openai = getOpenAICompatible();
     const result = await openai.chat.completions.create({
@@ -122,5 +131,47 @@ export async function POST(req: NextRequest): Promise<Response> {
       { error: errorMessage(err) },
       { status: 500 }
     );
+  }
+}
+
+/**
+ * Generative-UI variant: one short text summary plus a single openui-lang
+ * block (overview facts, structure, ambiguity callouts). Returned verbatim;
+ * the client renders it and falls back to source text if it does not parse.
+ */
+async function explainAsGenerativeUi(source: string, contextParts: string[]): Promise<Response> {
+  const systemPrompt = [
+    "You are the Workbench AI assistant. Explain what the user's document",
+    "does at a high level — its purpose, structure, and any non-obvious",
+    "behaviour. Reference specific keys, sections or declarations.",
+    ...(contextParts.length ? ["", ...contextParts] : []),
+    "",
+    "Answer with ONE short plain-text sentence, then exactly ONE openui-lang",
+    "block containing: a Card titled \"Overview\" (KeyValue facts), a Card",
+    "titled \"Structure\" (Text and/or Table), and one Callout with",
+    "tone=\"warning\" per ambiguous, underspecified or likely-incorrect point.",
+    "Do not use ProposedEdit in explanations.",
+    "",
+    getGenerativeUiPrompt(),
+  ].join("\n");
+
+  try {
+    const openai = getOpenAICompatible();
+    const result = await openai.chat.completions.create({
+      model: getDefaultModel(),
+      stream: false,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: source },
+      ],
+    });
+    const raw = result?.choices?.[0]?.message?.content ?? "";
+    return NextResponse.json({
+      explanation: raw,
+      ambiguity: [],
+      format: "openui",
+    } satisfies ExplainResponse);
+  } catch (err) {
+    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }
 }

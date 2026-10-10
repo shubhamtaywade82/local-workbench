@@ -4,6 +4,7 @@ import {
   errorMessage,
   getOpenAICompatible,
 } from "@/lib/ai/server";
+import { getGenerativeUiPrompt, isGenerativeUiEnabled } from "@/lib/ai/generative-ui/prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,8 @@ interface ChatRequestBody {
   messages: ChatMessage[];
   model?: string;
   context?: ChatContext;
+  /** Client opt-in; honoured only when the server has AI_GENERATIVE_UI enabled. */
+  generativeUi?: boolean;
 }
 
 /**
@@ -100,7 +103,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  const systemPrompt = buildSystemPrompt(body.context);
+  const generativeUi = body.generativeUi === true && isGenerativeUiEnabled();
+  const systemPrompt = generativeUi
+    ? `${buildSystemPrompt(body.context)}\n\n${getGenerativeUiPrompt()}`
+    : buildSystemPrompt(body.context);
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
     ...body.messages,
@@ -112,6 +118,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
+    // Tells the client whether the response may contain openui-lang blocks.
+    "X-Generative-UI": generativeUi ? "1" : "0",
   };
 
   const encoder = new TextEncoder();

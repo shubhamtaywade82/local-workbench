@@ -28,6 +28,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AiMessage } from "@/features/workbench/store";
+import { createPatch } from "diff";
+import {
+  GenerativeMessage,
+  type ProposedEditRequest,
+} from "@/features/workbench/ai-assistant/generative-ui/generative-message";
 import { documentRegistry } from "@/documents/core/registry";
 
 export function AiAssistant() {
@@ -57,6 +62,7 @@ export function AiAssistant() {
             id: data.provider.id,
             name: data.provider.name,
             available: data.provider.available,
+            generativeUi: data.features?.generativeUi === true,
           });
         }
       })
@@ -116,6 +122,7 @@ export function AiAssistant() {
         body: JSON.stringify({
           messages: [{ role: "user", content: text }],
           context,
+          generativeUi: aiProvider?.generativeUi === true,
         }),
         signal: abortRef.current.signal,
       });
@@ -128,6 +135,12 @@ export function AiAssistant() {
         });
         setAiBusy(false);
         return;
+      }
+      if (res.headers.get("X-Generative-UI") === "1") {
+        updateMessage(assistantId, {
+          generativeUi: true,
+          contextPath: activeSession?.path,
+        });
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -307,10 +320,20 @@ export function AiAssistant() {
             languageId: adapter.languageId,
             adapterId: adapter.id,
             source: activeSession.draftText,
+            generativeUi: aiProvider?.generativeUi === true,
           }),
         });
         const json = await res.json();
         if (json.error) throw new Error(json.error);
+        if (json.format === "openui") {
+          updateMessage(assistantId, {
+            content: json.explanation ?? "",
+            streaming: false,
+            generativeUi: true,
+            contextPath: activeSession.path,
+          });
+          return;
+        }
         const ambiguity = json.ambiguity?.length
           ? `\n\n**Ambiguity flagged:**\n${json.ambiguity.map((a: string) => `- ${a}`).join("\n")}`
           : "";
@@ -388,6 +411,32 @@ export function AiAssistant() {
     updateMessage(msg.id, {
       proposedEdit: undefined,
       content: `${msg.content}\n\n✅ Applied to ${msg.proposedEdit.path}`,
+    });
+  }
+
+  /**
+   * Generated UI asked to propose an edit. Turn it into the existing
+   * review-and-apply flow (diff shown, user must click Apply); nothing is
+   * written here. The edit targets the document the message was generated
+   * against, never whatever tab happens to be active now.
+   */
+  function proposeEditFromGeneratedUi(msg: AiMessage, req: ProposedEditRequest) {
+    const path = msg.contextPath;
+    const current = path ? useWorkbench.getState().sessions[path] : undefined;
+    if (!path || !current) {
+      updateMessage(msg.id, {
+        content: `${msg.content}\n\n⚠️ Cannot review edit: the target document is no longer open.`,
+      });
+      return;
+    }
+    updateMessage(msg.id, {
+      proposedEdit: {
+        label: req.label,
+        description: req.description,
+        newText: req.newText,
+        path,
+        diff: createPatch(path, current.draftText, req.newText, "current", "proposed"),
+      },
     });
   }
 
@@ -499,6 +548,7 @@ export function AiAssistant() {
               message={m}
               onApply={() => applyProposedEdit(m)}
               onDiscard={() => discardProposedEdit(m)}
+              onProposeEdit={(req) => proposeEditFromGeneratedUi(m, req)}
             />
           ))}
         </div>
@@ -578,10 +628,12 @@ function MessageBubble({
   message,
   onApply,
   onDiscard,
+  onProposeEdit,
 }: {
   message: AiMessage;
   onApply: () => void;
   onDiscard: () => void;
+  onProposeEdit: (req: ProposedEditRequest) => void;
 }) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -610,7 +662,15 @@ function MessageBubble({
             )}
           </div>
         )}
-        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        {message.generativeUi && message.role === "assistant" ? (
+          <GenerativeMessage
+            content={message.content}
+            streaming={Boolean(message.streaming)}
+            onProposeEdit={onProposeEdit}
+          />
+        ) : (
+          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        )}
         {message.proposedEdit && (
           <div className="mt-2 rounded border bg-background/60 p-2">
             <div className="flex items-center gap-1 text-[10px] font-medium">
