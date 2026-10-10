@@ -4,7 +4,7 @@
 
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -22,7 +22,7 @@ import { WelcomeOverlay } from "@/features/workbench/shell/welcome-overlay";
 import { useWorkspaceController } from "@/platform/filesystem/use-workspace-controller";
 import { ensureAdaptersRegistered } from "@/documents/bootstrap";
 import { useWorkbench } from "@/features/workbench/store";
-import { loadSettings, saveSettings } from "@/platform/persistence/persistence";
+import { loadSettings, saveSettings, listRecentWorkspaces } from "@/platform/persistence/persistence";
 import { ThemeProvider } from "./theme-provider";
 import { cn } from "@/lib/utils";
 
@@ -40,9 +40,10 @@ export function WorkbenchShell() {
   const setDiagnosticsVisible = useWorkbench((s) => s.setDiagnosticsVisible);
 
   const controller = useWorkspaceController();
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [booted, setBooted] = useState(false);
 
-  // Boot: register adapters, load settings, auto-open the sample workspace
-  // so the editor is never empty on first load.
+  // Boot: register adapters, load settings, check if first visit
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -56,8 +57,17 @@ export function WorkbenchShell() {
         setAiVisible(settings.aiVisible);
         setDiagnosticsVisible(settings.diagnosticsVisible);
       }
-      // Always start with the sample workspace so the editor is never empty.
-      await controller.openSampleWorkspace();
+      // Check if first visit: no settings AND no recent workspaces
+      const recent = await listRecentWorkspaces();
+      const isFirstVisit = !settings && recent.length === 0;
+      if (!cancelled) {
+        setShowWelcome(isFirstVisit);
+        setBooted(true);
+        // Only auto-open sample for returning users
+        if (!isFirstVisit) {
+          await controller.openSampleWorkspace();
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -68,6 +78,7 @@ export function WorkbenchShell() {
   // Persist settings on change.
   const theme = useWorkbench((s) => s.theme);
   useEffect(() => {
+    if (!booted) return;
     saveSettings({
       theme,
       explorerVisible,
@@ -75,7 +86,7 @@ export function WorkbenchShell() {
       aiVisible,
       diagnosticsVisible,
     });
-  }, [theme, explorerVisible, previewVisible, aiVisible, diagnosticsVisible]);
+  }, [theme, explorerVisible, previewVisible, aiVisible, diagnosticsVisible, booted]);
 
   // Expose the controller via window so the command palette (which can't
   // re-instantiate the hook) can access the active fs.

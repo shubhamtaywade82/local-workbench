@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -34,7 +34,17 @@ export function FileExplorer() {
   const treeError = useWorkbench((s) => s.treeError);
   const setTree = useWorkbench((s) => s.setTree);
   const controller = useWorkspaceController();
-  const fsaSupported = isFileSystemAccessSupported();
+  const [fsaSupported, setFsaSupported] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      setMounted(true);
+      setFsaSupported(isFileSystemAccessSupported());
+    }
+  }, []);
 
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set([""]));
@@ -57,6 +67,10 @@ export function FileExplorer() {
   // ancestor folders). Folders with no matching descendants are hidden.
   const filteredTree = filter ? filterTree(tree, filter.toLowerCase()) : tree;
 
+  // Don't render buttons that depend on fsaSupported until mounted
+  const openFolderTitle = mounted ? (fsaSupported ? "Open folder…" : "File System Access API unavailable — use Chrome or Edge desktop") : "Open folder…";
+  const openFolderDisabled = mounted ? !fsaSupported : false;
+
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Header */}
@@ -70,8 +84,8 @@ export function FileExplorer() {
             size="icon"
             className="h-6 w-6"
             onClick={() => controller.openLocalDirectory()}
-            disabled={!fsaSupported}
-            title={fsaSupported ? "Open folder…" : "File System Access API unavailable — use Chrome or Edge desktop"}
+            disabled={openFolderDisabled}
+            title={openFolderTitle}
           >
             <FolderOpen className="h-3.5 w-3.5" />
           </Button>

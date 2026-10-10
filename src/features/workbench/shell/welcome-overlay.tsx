@@ -3,6 +3,7 @@
 
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { FolderOpen, FileText, Zap, Eye, Stethoscope, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isFileSystemAccessSupported } from "@/platform/filesystem/workspace-fs";
@@ -13,9 +14,26 @@ interface WelcomeOverlayProps {
 }
 
 export function WelcomeOverlay({ onOpenSample, onOpenLocal }: WelcomeOverlayProps) {
-  // The bootstrap auto-opens the sample workspace, so this overlay is really
-  // a fallback if that fails. Still — render a useful landing card.
-  const fsaSupported = isFileSystemAccessSupported();
+  const [fsaSupported, setFsaSupported] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      setMounted(true);
+      setFsaSupported(isFileSystemAccessSupported());
+    }
+  }, []);
+
+  // Don't render on server to avoid hydration mismatch
+  if (!mounted) {
+    return (
+      <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+        <div className="mx-4 w-full max-w-2xl rounded-xl border bg-card p-8 shadow-lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm">
