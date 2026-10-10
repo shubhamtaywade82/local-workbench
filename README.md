@@ -26,7 +26,7 @@ A powerful, local-first document editor with AI assistance, built with Next.js 1
 | Editor | Monaco Editor (React wrapper) |
 | State | Zustand |
 | Database | Prisma + SQLite |
-| AI SDK | OpenAI Node.js SDK (OpenAI-compatible Chat Completions API) |
+| AI SDK | OpenAI Node.js SDK + @nemesis-oss/ollama-sdk (OpenAI-compatible Chat Completions API) |
 | File System | File System Access API + in-memory fallback |
 
 ## Prerequisites
@@ -64,9 +64,12 @@ bun run dev        # or npm run dev
 
 ## AI Configuration
 
-The AI Assistant uses the OpenAI Chat Completions API. Configure these server-side environment variables:
+The AI Assistant uses the OpenAI Chat Completions API (via the standard `openai` SDK) and supports **Ollama** for local inference via `@nemesis-oss/ollama-sdk`.
+
+### Option 1: OpenAI / OpenAI-compatible (cloud)
 
 ```dotenv
+AI_PROVIDER=openai
 OPENAI_API_KEY=your-api-key
 # Optional; defaults to the OpenAI API URL
 OPENAI_BASE_URL=https://api.openai.com/v1
@@ -74,9 +77,25 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-Compatible providers can be used by setting their API base URL and a model supported by that provider. Without an API key, the AI panel shows "offline" but all other features work.
+Works with any OpenAI-compatible endpoint (OpenAI, Azure, Together, Groq, Fireworks, etc.).
 
-Keep API keys in server-side environment variables; do not expose them through `NEXT_PUBLIC_*` variables.
+### Option 2: Ollama (local, no API key needed)
+
+```dotenv
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.1:8b
+```
+
+Requires [Ollama](https://ollama.ai) running locally. Pull a model first:
+
+```bash
+ollama pull llama3.1:8b
+```
+
+The integration uses `@nemesis-oss/ollama-sdk`'s `OpenAICompatClient`, which provides the exact same interface as the OpenAI SDK — all AI actions (chat, explain, fix, convert, diagram, improve) work identically.
+
+Without a configured provider, the AI panel shows "offline" but all other features work.
 
 ## Project Structure
 

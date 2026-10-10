@@ -1,22 +1,63 @@
 /**
  * Server-side helpers for the AI API routes.
  *
+ * Supports both OpenAI-compatible APIs (OpenAI, Azure, Together, Groq, etc.)
+ * and Ollama via @nemesis-oss/ollama-sdk's OpenAICompatClient.
+ *
  * The OpenAI SDK is only imported from App Router route handlers (under
  * `src/app/api/ai/*`), which run in the Node.js runtime.
  */
 import OpenAI from "openai";
+import { OllamaClient } from "@nemesis-oss/ollama-sdk";
 
 /**
- * Default model for all AI actions. Override it with OPENAI_MODEL.
+ * Provider type for the AI backend.
  */
-export const DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+export type AiProvider = "openai" | "ollama";
+
+/**
+ * Get the active AI provider from environment. Defaults to "openai".
+ * Set AI_PROVIDER=ollama to use Ollama.
+ */
+export function getAiProvider(): AiProvider {
+  return (process.env.AI_PROVIDER as AiProvider) || "openai";
+}
+
+/**
+ * Default model for all AI actions. Override with OPENAI_MODEL or OLLAMA_MODEL.
+ */
+export function getDefaultModel(): string {
+  const provider = getAiProvider();
+  if (provider === "ollama") {
+    return process.env.OLLAMA_MODEL || "llama3.1:8b";
+  }
+  return process.env.OPENAI_MODEL || "gpt-4o-mini";
+}
 
 let openAIClient: OpenAI | undefined;
+let ollamaClient: OllamaClient | undefined;
 
-export function getOpenAI(): OpenAI {
+/**
+ * Get or create the OpenAI-compatible client.
+ * For Ollama, uses @nemesis-oss/ollama-sdk's OpenAICompatClient which
+ * provides the same interface as the OpenAI SDK.
+ */
+export function getOpenAICompatible(): OpenAI {
+  const provider = getAiProvider();
+
+  if (provider === "ollama") {
+    if (!ollamaClient) {
+      const baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+      ollamaClient = new OllamaClient({ baseUrl });
+    }
+    // The OllamaClient's openai property is an OpenAICompatClient
+    // that implements the same interface as OpenAI SDK
+    return ollamaClient.openai as unknown as OpenAI;
+  }
+
   if (openAIClient) return openAIClient;
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is not configured.");
+    throw new Error("OPENAI_API_KEY is not configured. Set it or use AI_PROVIDER=ollama");
   }
 
   openAIClient = new OpenAI({
@@ -24,6 +65,20 @@ export function getOpenAI(): OpenAI {
     baseURL: process.env.OPENAI_BASE_URL,
   });
   return openAIClient;
+}
+
+/**
+ * Get the native Ollama client for advanced features (tools, embeddings, etc.)
+ */
+export function getOllamaClient(): OllamaClient | undefined {
+  const provider = getAiProvider();
+  if (provider !== "ollama") return undefined;
+
+  if (!ollamaClient) {
+    const baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+    ollamaClient = new OllamaClient({ baseUrl });
+  }
+  return ollamaClient;
 }
 
 /**
