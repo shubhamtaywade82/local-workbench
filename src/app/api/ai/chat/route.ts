@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import {
-  DEFAULT_MODEL,
+  getDefaultModel,
   errorMessage,
-  getOpenAI,
+  getOpenAICompatible,
 } from "@/lib/ai/server";
 
 export const runtime = "nodejs";
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     { role: "system", content: systemPrompt },
     ...body.messages,
   ];
-  const model = body.model || DEFAULT_MODEL;
+  const model = body.model || getDefaultModel();
 
   const headers = {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       };
       try {
-        const openai = getOpenAI();
+        const openai = getOpenAICompatible();
         const upstream = await openai.chat.completions.create({
           model,
           messages,

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  DEFAULT_MODEL,
+  getDefaultModel,
   errorMessage,
-  getOpenAI,
+  getOpenAICompatible,
   stripCodeFence,
 } from "@/lib/ai/server";
 
@@ -68,9 +68,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   ].join(" ");
 
   try {
-    const openai = getOpenAI();
+    const openai = getOpenAICompatible();
     const result = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+      model: getDefaultModel(),
       stream: false,
       messages: [
         { role: "system", content: systemPrompt },

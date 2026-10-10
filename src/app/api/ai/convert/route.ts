@@ -4,9 +4,9 @@ import JSON5 from "json5";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import {
-  DEFAULT_MODEL,
+  getDefaultModel,
   errorMessage,
-  getOpenAI,
+  getOpenAICompatible,
   stripCodeFence,
 } from "@/lib/ai/server";
 
@@ -234,9 +234,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   // 2. LLM fallback.
   const systemPrompt = `Convert the user's document from ${from} to ${to}. Return only the converted document, no code fence, no explanation.`;
   try {
-    const openai = getOpenAI();
+    const openai = getOpenAICompatible();
     const result = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+      model: getDefaultModel(),
       stream: false,
       messages: [
         { role: "system", content: systemPrompt },
