@@ -117,16 +117,28 @@ export async function POST(req: NextRequest): Promise<Response> {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (obj: unknown) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      let closed = false;
+      // Once the client disconnects the stream is cancelled; enqueueing after
+      // that throws, so every write is guarded.
+      req.signal.addEventListener("abort", () => {
+        closed = true;
+      }, { once: true });
+      const write = (text: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(text));
+        } catch {
+          closed = true;
+        }
       };
+      const send = (obj: unknown) => write(`data: ${JSON.stringify(obj)}\n\n`);
       try {
         const openai = getOpenAICompatible();
         const upstream = await openai.chat.completions.create({
           model,
           messages,
           stream: true,
-        });
+        }, { signal: req.signal });
 
         for await (const chunk of upstream) {
           const delta = chunk?.choices?.[0]?.delta?.content;
@@ -136,10 +148,13 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
         send({ delta: "", done: true });
       } catch (err) {
-        send({ error: errorMessage(err) });
+        if (!req.signal.aborted) send({ error: errorMessage(err) });
       } finally {
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        controller.close();
+        write("data: [DONE]\n\n");
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
       }
     },
   });

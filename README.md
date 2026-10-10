@@ -93,7 +93,9 @@ Requires [Ollama](https://ollama.ai) running locally. Pull a model first:
 ollama pull llama3.1:8b
 ```
 
-The integration uses `@nemesis-oss/ollama-sdk`'s `OpenAICompatClient`, which provides the exact same interface as the OpenAI SDK — all AI actions (chat, explain, fix, convert, diagram, improve) work identically.
+The integration uses `@nemesis-oss/ollama-sdk`'s `OpenAICompatClient` (`/v1/chat/completions`) behind the same typed `ChatCompletionsClient` used for OpenAI (`src/lib/ai/server.ts`), so all AI actions (chat, explain, fix, convert, diagram, improve) work identically. Note that `OpenAICompatClient` is **not** shape-compatible with the `openai` SDK (it exposes `createChatCompletion`, not `chat.completions.create`); the adapter in `server.ts` bridges the two.
+
+For multiple Ollama hosts / Ollama Cloud keys with failover, see `OLLAMA_ENDPOINTS` in `.env.example` (higher `priority` is tried first). `OLLAMA_TIMEOUT_MS` (default `120000`) bounds the whole request, including the full streamed response.
 
 Without a configured provider, the AI panel shows "offline" but all other features work.
 

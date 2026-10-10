@@ -2,25 +2,35 @@
  * Server-side helpers for the AI API routes.
  *
  * Supports both OpenAI-compatible APIs (OpenAI, Azure, Together, Groq, etc.)
- * and Ollama via @nemesis-oss/ollama-sdk's OpenAICompatClient.
+ * and Ollama via @nemesis-oss/ollama-sdk (single endpoint or multi-endpoint
+ * pool with failover). Both providers are exposed to routes through the same
+ * narrow, typed `ChatCompletionsClient` so a provider mismatch is a compile
+ * error rather than a runtime `undefined`.
  *
- * The OpenAI SDK is only imported from App Router route handlers (under
- * `src/app/api/ai/*`), which run in the Node.js runtime.
+ * Only imported from App Router route handlers (under `src/app/api/ai/*`),
+ * which run in the Node.js runtime.
  */
 import OpenAI from "openai";
-import { OllamaClient, OllamaEndpoint } from "@nemesis-oss/ollama-sdk";
+import { OllamaClient, type OllamaEndpoint } from "@nemesis-oss/ollama-sdk";
 
 /**
  * Provider type for the AI backend.
  */
 export type AiProvider = "openai" | "ollama";
 
+const AI_PROVIDERS: readonly AiProvider[] = ["openai", "ollama"];
+
 /**
  * Get the active AI provider from environment. Defaults to "openai".
- * Set AI_PROVIDER=ollama to use Ollama.
+ * Set AI_PROVIDER=ollama to use Ollama. Unknown values fall back to "openai"
+ * with a warning instead of being passed through unchecked.
  */
 export function getAiProvider(): AiProvider {
-  return (process.env.AI_PROVIDER as AiProvider) || "openai";
+  const raw = process.env.AI_PROVIDER?.trim().toLowerCase();
+  if (!raw) return "openai";
+  if ((AI_PROVIDERS as readonly string[]).includes(raw)) return raw as AiProvider;
+  console.warn(`[AI] Unknown AI_PROVIDER "${process.env.AI_PROVIDER}", falling back to "openai"`);
+  return "openai";
 }
 
 /**
@@ -34,80 +44,183 @@ export function getDefaultModel(): string {
   return process.env.OPENAI_MODEL || "gpt-4o-mini";
 }
 
-let openAIClient: OpenAI | undefined;
+// ---------------------------------------------------------------------------
+// Provider-neutral chat completions surface used by every /api/ai/* route.
+// ---------------------------------------------------------------------------
+
+export interface ChatCompletionMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface ChatCompletionParams {
+  model: string;
+  messages: ChatCompletionMessage[];
+}
+
+export interface ChatCompletionResult {
+  readonly choices: ReadonlyArray<{ readonly message?: { readonly content?: string | null } }>;
+}
+
+export interface ChatCompletionChunk {
+  readonly choices: ReadonlyArray<{ readonly delta?: { readonly content?: string | null } }>;
+}
+
+export interface ChatCompletionRequestOptions {
+  /** Aborts the upstream request (e.g. the incoming request's signal on client disconnect). */
+  signal?: AbortSignal;
+}
+
+export interface ChatCompletionsClient {
+  chat: {
+    completions: {
+      create(
+        params: ChatCompletionParams & { stream: true },
+        options?: ChatCompletionRequestOptions
+      ): Promise<AsyncIterable<ChatCompletionChunk>>;
+      create(
+        params: ChatCompletionParams & { stream?: false },
+        options?: ChatCompletionRequestOptions
+      ): Promise<ChatCompletionResult>;
+    };
+  };
+}
+
+interface ChatCompletionsBackend {
+  complete(params: ChatCompletionParams, signal?: AbortSignal): Promise<ChatCompletionResult>;
+  stream(params: ChatCompletionParams, signal?: AbortSignal): Promise<AsyncIterable<ChatCompletionChunk>>;
+}
+
+function toChatCompletionsClient(backend: ChatCompletionsBackend): ChatCompletionsClient {
+  function create(
+    params: ChatCompletionParams & { stream: true },
+    options?: ChatCompletionRequestOptions
+  ): Promise<AsyncIterable<ChatCompletionChunk>>;
+  function create(
+    params: ChatCompletionParams & { stream?: false },
+    options?: ChatCompletionRequestOptions
+  ): Promise<ChatCompletionResult>;
+  function create(
+    params: ChatCompletionParams & { stream?: boolean },
+    options?: ChatCompletionRequestOptions
+  ): Promise<ChatCompletionResult | AsyncIterable<ChatCompletionChunk>> {
+    const { stream, ...rest } = params;
+    return stream ? backend.stream(rest, options?.signal) : backend.complete(rest, options?.signal);
+  }
+  return { chat: { completions: { create } } };
+}
+
+let chatClient: ChatCompletionsClient | undefined;
 let ollamaClient: OllamaClient | undefined;
 
+// ---------------------------------------------------------------------------
+// Ollama configuration
+// ---------------------------------------------------------------------------
+
+/** Generous default: the SDK timeout spans the whole stream, and local models are slow. */
+const DEFAULT_OLLAMA_TIMEOUT_MS = 120_000;
+const MAX_DISCRETE_ENDPOINTS = 10;
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+function parseInteger(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) ? n : undefined;
+}
+
+function parseModelList(value: unknown): string[] | undefined {
+  const list = Array.isArray(value)
+    ? value.filter((m): m is string => typeof m === "string")
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  const models = list.map((m) => m.trim()).filter(Boolean);
+  return models.length > 0 ? models : undefined;
+}
+
+function endpointFromJson(raw: unknown, index: number): OllamaEndpoint | undefined {
+  if (typeof raw !== "object" || raw === null) {
+    console.warn(`[AI] OLLAMA_ENDPOINTS[${index}] is not an object; skipped`);
+    return undefined;
+  }
+  const ep = raw as Record<string, unknown>;
+  if (typeof ep.name !== "string" || !ep.name || typeof ep.baseUrl !== "string" || !ep.baseUrl) {
+    console.warn(`[AI] OLLAMA_ENDPOINTS[${index}] requires string "name" and "baseUrl"; skipped`);
+    return undefined;
+  }
+  return {
+    name: ep.name,
+    baseUrl: ep.baseUrl,
+    apiKey: typeof ep.apiKey === "string" && ep.apiKey ? ep.apiKey : undefined,
+    priority: typeof ep.priority === "number" && Number.isFinite(ep.priority) ? ep.priority : undefined,
+    models: parseModelList(ep.models),
+  };
+}
+
 /**
- * Parse Ollama endpoints from environment variable.
- * Expected format (JSON array):
- * [
- *   { "name": "ollama-1", "baseUrl": "http://localhost:11434", "apiKey": "key1", "priority": 1, "models": ["llama3.1:8b", "mistral"] },
- *   { "name": "ollama-2", "baseUrl": "http://ollama2:11434", "apiKey": "key2", "priority": 2 }
- * ]
+ * Resolve Ollama endpoints from the environment, in order of precedence:
  *
- * Or via discrete env vars:
- * OLLAMA_ENDPOINT_1_NAME=ollama-1
- * OLLAMA_ENDPOINT_1_BASE_URL=http://localhost:11434
- * OLLAMA_ENDPOINT_1_API_KEY=key1
- * OLLAMA_ENDPOINT_1_PRIORITY=1
- * OLLAMA_ENDPOINT_1_MODELS=llama3.1:8b,mistral
+ * 1. OLLAMA_ENDPOINTS — JSON array:
+ *    [
+ *      { "name": "ollama-1", "baseUrl": "http://localhost:11434", "apiKey": "key1", "priority": 10, "models": ["llama3.1:8b", "mistral"] },
+ *      { "name": "ollama-2", "baseUrl": "http://ollama2:11434", "apiKey": "key2", "priority": 5 }
+ *    ]
+ *    `priority`: HIGHER is tried first (SDK semantics); equal priorities form a pool
+ *    balanced by OLLAMA_ENDPOINT_STRATEGY.
+ * 2. Discrete env vars OLLAMA_ENDPOINT_<N>_{NAME,BASE_URL,API_KEY,PRIORITY,MODELS}, N = 1..10.
+ * 3. Single endpoint: OLLAMA_BASE_URL (default http://localhost:11434) + OLLAMA_API_KEY.
+ *
+ * Always returns at least one endpoint.
  */
-function parseOllamaEndpoints(): OllamaEndpoint[] | undefined {
-  // First try JSON array from OLLAMA_ENDPOINTS
+function parseOllamaEndpoints(): OllamaEndpoint[] {
   const endpointsJson = process.env.OLLAMA_ENDPOINTS;
   if (endpointsJson) {
     try {
-      const parsed = JSON.parse(endpointsJson);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((ep: any) => ({
-          name: ep.name,
-          baseUrl: ep.baseUrl,
-          apiKey: ep.apiKey,
-          priority: ep.priority,
-          models: ep.models,
-        }));
+      const parsed: unknown = JSON.parse(endpointsJson);
+      if (Array.isArray(parsed)) {
+        const endpoints = parsed
+          .map(endpointFromJson)
+          .filter((ep): ep is OllamaEndpoint => ep !== undefined);
+        if (endpoints.length > 0) return endpoints;
       }
+      console.warn("[AI] OLLAMA_ENDPOINTS has no valid endpoints; falling back");
     } catch (e) {
       console.warn("[AI] Failed to parse OLLAMA_ENDPOINTS JSON:", e);
     }
   }
 
-  // Fallback: discrete env vars OLLAMA_ENDPOINT_<N>_*
   const endpoints: OllamaEndpoint[] = [];
-  for (let i = 1; i <= 10; i++) {
+  for (let i = 1; i <= MAX_DISCRETE_ENDPOINTS; i++) {
     const name = process.env[`OLLAMA_ENDPOINT_${i}_NAME`];
     const baseUrl = process.env[`OLLAMA_ENDPOINT_${i}_BASE_URL`];
-    const apiKey = process.env[`OLLAMA_ENDPOINT_${i}_API_KEY`];
-    const priority = process.env[`OLLAMA_ENDPOINT_${i}_PRIORITY`];
-    const models = process.env[`OLLAMA_ENDPOINT_${i}_MODELS`];
-
-    if (name && baseUrl) {
-      endpoints.push({
-        name,
-        baseUrl,
-        apiKey,
-        priority: priority ? parseInt(priority, 10) : undefined,
-        models: models ? models.split(",").map((m) => m.trim()) : undefined,
-      });
-    }
+    if (!name || !baseUrl) continue;
+    endpoints.push({
+      name,
+      baseUrl,
+      apiKey: process.env[`OLLAMA_ENDPOINT_${i}_API_KEY`] || undefined,
+      priority: parseInteger(process.env[`OLLAMA_ENDPOINT_${i}_PRIORITY`]),
+      models: parseModelList(process.env[`OLLAMA_ENDPOINT_${i}_MODELS`]),
+    });
   }
+  if (endpoints.length > 0) return endpoints;
 
-  if (endpoints.length > 0) {
-    return endpoints;
-  }
-
-  // Fallback: single endpoint from OLLAMA_BASE_URL + OLLAMA_API_KEY
-  const baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
-  const apiKey = process.env.OLLAMA_API_KEY;
-  if (baseUrl) {
-    return [{ name: "default", baseUrl, apiKey, priority: 1 }];
-  }
-
-  return undefined;
+  return [
+    {
+      name: "default",
+      baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+      apiKey: process.env.OLLAMA_API_KEY || undefined,
+      priority: 1,
+    },
+  ];
 }
 
 /**
- * Parse endpoint health strategy from environment.
+ * Parse endpoint selection strategy from environment.
  * Options: "priority" (default), "round-robin", "least-connections"
  */
 function parseEndpointStrategy(): "priority" | "round-robin" | "least-connections" {
@@ -118,92 +231,110 @@ function parseEndpointStrategy(): "priority" | "round-robin" | "least-connection
   return "priority";
 }
 
+function createOllamaClient(): OllamaClient {
+  const endpoints = parseOllamaEndpoints();
+  const strategy = parseEndpointStrategy();
+  const timeoutMs = parsePositiveInt(process.env.OLLAMA_TIMEOUT_MS) ?? DEFAULT_OLLAMA_TIMEOUT_MS;
+
+  // Always route through `endpoints` (a pool of one is valid) so endpoint names,
+  // `models` scoping and health tracking behave identically for 1..N endpoints.
+  const client = new OllamaClient({
+    endpoints,
+    endpointHealth: {
+      strategy,
+      failureThreshold: 3,
+      cooldownMs: 5000,
+      maxConcurrentPerEndpoint: 10,
+    },
+    timeoutMs,
+  });
+  console.log(
+    `[AI] Initialized Ollama client: ${endpoints.map((e) => e.name).join(", ")} ` +
+      `(strategy: ${strategy}, timeoutMs: ${timeoutMs})`
+  );
+  return client;
+}
+
+/** Ollama's bridge may return content as typed parts; routes only consume text. */
+function messageContentToText(content: string | ReadonlyArray<{ type: string; text?: string }>): string {
+  if (typeof content === "string") return content;
+  return content
+    .map((part) => (part.type === "text" && typeof part.text === "string" ? part.text : ""))
+    .join("");
+}
+
+// ---------------------------------------------------------------------------
+// Client accessors
+// ---------------------------------------------------------------------------
+
 /**
- * Get or create the OpenAI-compatible client.
- * For Ollama, uses @nemesis-oss/ollama-sdk's OpenAICompatClient which
- * provides the same interface as OpenAI SDK.
+ * Get or create the chat completions client for the active provider.
+ * For Ollama this routes through the SDK's OpenAI-compatible bridge
+ * (`/v1/chat/completions`) with the client's endpoint failover.
  */
-export function getOpenAICompatible(): OpenAI {
-  const provider = getAiProvider();
+export function getOpenAICompatible(): ChatCompletionsClient {
+  if (chatClient) return chatClient;
 
-  if (provider === "ollama") {
-    if (!ollamaClient) {
-      const endpoints = parseOllamaEndpoints();
-      const strategy = parseEndpointStrategy();
-
-      if (endpoints && endpoints.length > 1) {
-        // Multi-endpoint pool with failover and load balancing
-        ollamaClient = new OllamaClient({
-          endpoints,
-          endpointHealth: {
-            strategy,
-            failureThreshold: 3,
-            cooldownMs: 5000,
-            maxConcurrentPerEndpoint: 10,
-          },
-        });
-        console.log(`[AI] Initialized Ollama client with ${endpoints.length} endpoints (strategy: ${strategy})`);
-      } else if (endpoints && endpoints.length === 1) {
-        // Single endpoint
-        ollamaClient = new OllamaClient({
-          baseUrl: endpoints[0].baseUrl,
-          apiKey: endpoints[0].apiKey,
-        });
-        console.log(`[AI] Initialized Ollama client with single endpoint: ${endpoints[0].name}`);
-      } else {
-        // Default fallback
-        ollamaClient = new OllamaClient({
-          baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
-        });
-        console.log("[AI] Initialized Ollama client with default endpoint");
-      }
-    }
-    // The OllamaClient's openai property is an OpenAICompatClient
-    // that implements the same interface as OpenAI SDK
-    return ollamaClient.openai as unknown as OpenAI;
+  if (getAiProvider() === "ollama") {
+    const client = getOllamaClient();
+    if (!client) throw new Error("Ollama client is not available");
+    chatClient = toChatCompletionsClient({
+      complete: async (params, signal) => {
+        const res = await client.openai.createChatCompletion({ ...params, stream: false }, signal);
+        return {
+          choices: res.choices.map((c) => ({ message: { content: messageContentToText(c.message.content) } })),
+        };
+      },
+      stream: (params, signal) => client.openai.createChatCompletion({ ...params, stream: true }, signal),
+    });
+    return chatClient;
   }
 
-  if (openAIClient) return openAIClient;
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is not configured. Set it or use AI_PROVIDER=ollama");
   }
-
-  openAIClient = new OpenAI({
+  const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     baseURL: process.env.OPENAI_BASE_URL,
   });
-  return openAIClient;
+  chatClient = toChatCompletionsClient({
+    complete: (params, signal) => openai.chat.completions.create({ ...params, stream: false }, { signal }),
+    stream: (params, signal) => openai.chat.completions.create({ ...params, stream: true }, { signal }),
+  });
+  return chatClient;
 }
 
 /**
  * Get the native Ollama client for advanced features (tools, embeddings, etc.)
- * Returns the client configured with endpoint pool if available.
+ * Returns undefined when the active provider is not Ollama.
  */
 export function getOllamaClient(): OllamaClient | undefined {
-  const provider = getAiProvider();
-  if (provider !== "ollama") return undefined;
-
-  // Ensure client is initialized
-  getOpenAICompatible();
+  if (getAiProvider() !== "ollama") return undefined;
+  ollamaClient ??= createOllamaClient();
   return ollamaClient;
 }
 
-/**
- * Get endpoint health status for monitoring.
- */
-export function getOllamaEndpointHealth(): Array<{
+export interface OllamaEndpointHealthStatus {
   name: string;
   baseUrl: string;
   failureCount: number;
   isCoolingDown: boolean;
   activeRequests: number;
-}> | undefined {
+}
+
+/**
+ * Get endpoint health status for monitoring (never includes API keys).
+ */
+export function getOllamaEndpointHealth(): OllamaEndpointHealthStatus[] | undefined {
   const client = getOllamaClient();
   if (!client) return undefined;
-
-  // Access the internal registry via the client
-  // The registry is exposed on the client
-  return (client as any).registry?.status?.() || undefined;
+  return client.endpointStatus().map((h) => ({
+    name: h.endpoint.name,
+    baseUrl: h.endpoint.baseUrl,
+    failureCount: h.failureCount,
+    isCoolingDown: h.isCoolingDown,
+    activeRequests: h.activeRequests,
+  }));
 }
 
 /**
