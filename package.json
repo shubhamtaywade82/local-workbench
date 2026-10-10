@@ -21,7 +21,7 @@
     "@hookform/resolvers": "^5.1.1",
     "@mdxeditor/editor": "^3.39.1",
     "@monaco-editor/react": "^4.7.0",
-    "@nemesis-oss/ollama-sdk": "^1.12.0",
+    "@nemesis-oss/ollama-sdk": "^1.12.1",
     "@openuidev/lang-core": "0.4.0",
     "@openuidev/react-lang": "0.4.0",
     "@prisma/client": "^6.11.1",
