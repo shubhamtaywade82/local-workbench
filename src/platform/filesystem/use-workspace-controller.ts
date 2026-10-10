@@ -20,6 +20,7 @@ import {
   pickDirectory,
   type WorkspaceFileSystem,
 } from "@/platform/filesystem/workspace-fs";
+import { ServerWorkspace, type ServerRootInfo } from "@/platform/filesystem/server-workspace";
 import { SAMPLE_FILES, SAMPLE_WORKSPACE_NAME } from "@/platform/filesystem/sample-workspace";
 import {
   addRecentWorkspace,
@@ -34,6 +35,8 @@ export type WorkspaceController = {
   openSampleWorkspace: () => Promise<void>;
   /** Prompt the user to pick a directory (FSA API). */
   openLocalDirectory: () => Promise<void>;
+  /** Open a server-side root (WORKSPACE_ROOTS, e.g. a folder inside WSL). */
+  openServerWorkspace: (root: ServerRootInfo) => Promise<void>;
   /** Returns the active workspace fs (sample or local) or null. */
   getFs: () => WorkspaceFileSystem | null;
 };
@@ -72,6 +75,7 @@ export function useWorkspaceController(): WorkspaceController {
       createdAt: ws.workspace.createdAt,
       lastOpenedAt: Date.now(),
       handleName: ws.workspace.name,
+      ...(ws.workspace.serverRootId ? { serverRootId: ws.workspace.serverRootId } : {}),
     };
     await addRecentWorkspace(recent);
   }, []);
@@ -116,6 +120,55 @@ export function useWorkspaceController(): WorkspaceController {
     }
   }, [recordRecent, refreshRoot, setWorkspace]);
 
+  // Shared by every disk-backed workspace (local folder, server root): swap in
+  // the new fs, load its tree, and restore any recovery drafts for it.
+  const activatePersistentWorkspace = useCallback(
+    async (fs: WorkspaceFileSystem) => {
+      // Close all tabs from the previous workspace so we start fresh.
+      useWorkbench.getState().closeAllTabs();
+      fsRef = fs;
+      setWorkspace(fs.workspace);
+      await recordRecent(fs);
+      await refreshRoot(fs);
+      // Offer to restore recovery drafts if present.
+      try {
+        const drafts = await listRecoveryDrafts(
+          `${fs.workspace.source}:${fs.workspace.name}`
+        );
+        if (drafts.length > 0) {
+          // Open each draft path with its draft content so the user sees the
+          // unsaved state immediately, with the dirty indicator on.
+          const state = useWorkbench.getState();
+          for (const draft of drafts) {
+            let saved = draft.savedContent;
+            if (!saved) {
+              try {
+                saved = await fs.readFile(draft.path);
+              } catch {
+                saved = "";
+              }
+            }
+            const adapter = documentRegistry.resolve(draft.path);
+            state.openTab(
+              {
+                path: draft.path,
+                name: draft.path.split("/").pop() ?? draft.path,
+                languageId: adapter.languageId,
+                adapterId: adapter.id,
+              },
+              saved
+            );
+            // Restore unsaved content as the draft text.
+            useWorkbench.getState().updateDraft(draft.path, draft.content);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load recovery drafts:", err);
+      }
+    },
+    [recordRecent, refreshRoot, setWorkspace]
+  );
+
   const openLocalDirectory = useCallback(async () => {
     if (!isFileSystemAccessSupported()) {
       // Fall back silently to sample workspace.
@@ -126,49 +179,16 @@ export function useWorkspaceController(): WorkspaceController {
     if (!confirmSwitchWorkspace()) return;
     const handle = await pickDirectory();
     if (!handle) return; // user cancelled
-    // Close all tabs from the previous workspace so we start fresh.
-    useWorkbench.getState().closeAllTabs();
-    const fs = new FileSystemAccessWorkspace(handle);
-    fsRef = fs;
-    setWorkspace(fs.workspace);
-    await recordRecent(fs);
-    await refreshRoot(fs);
-    // Offer to restore recovery drafts if present.
-    try {
-      const drafts = await listRecoveryDrafts(
-        `${fs.workspace.source}:${fs.workspace.name}`
-      );
-      if (drafts.length > 0) {
-        // Open each draft path with its draft content so the user sees the
-        // unsaved state immediately, with the dirty indicator on.
-        const state = useWorkbench.getState();
-        for (const draft of drafts) {
-          let saved = draft.savedContent;
-          if (!saved) {
-            try {
-              saved = await fs.readFile(draft.path);
-            } catch {
-              saved = "";
-            }
-          }
-          const adapter = documentRegistry.resolve(draft.path);
-          state.openTab(
-            {
-              path: draft.path,
-              name: draft.path.split("/").pop() ?? draft.path,
-              languageId: adapter.languageId,
-              adapterId: adapter.id,
-            },
-            saved
-          );
-          // Restore unsaved content as the draft text.
-          useWorkbench.getState().updateDraft(draft.path, draft.content);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load recovery drafts:", err);
-    }
-  }, [openSampleWorkspace, recordRecent, refreshRoot, setWorkspace]);
+    await activatePersistentWorkspace(new FileSystemAccessWorkspace(handle));
+  }, [activatePersistentWorkspace, confirmSwitchWorkspace, openSampleWorkspace]);
+
+  const openServerWorkspace = useCallback(
+    async (root: ServerRootInfo) => {
+      if (!confirmSwitchWorkspace()) return;
+      await activatePersistentWorkspace(new ServerWorkspace(root));
+    },
+    [activatePersistentWorkspace, confirmSwitchWorkspace]
+  );
 
   const getFs = useCallback(() => fsRef, []);
 
@@ -229,7 +249,7 @@ export function useWorkspaceController(): WorkspaceController {
     void wsId;
   }, [workspace]);
 
-  return { openSampleWorkspace, openLocalDirectory, getFs };
+  return { openSampleWorkspace, openLocalDirectory, openServerWorkspace, getFs };
 }
 
 /** Read a file from the active workspace into a new editor tab. */

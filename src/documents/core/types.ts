@@ -105,6 +105,8 @@ export interface Workspace {
   name: string;
   rootPath: string;
   /** Origin of the workspace — affects what operations are allowed. */
-  source: "file-system-access" | "in-memory" | "indexeddb";
+  source: "file-system-access" | "in-memory" | "indexeddb" | "server";
   createdAt: number;
+  /** For `source: "server"`: the opaque root id from GET /api/fs/roots. */
+  serverRootId?: string;
 }
