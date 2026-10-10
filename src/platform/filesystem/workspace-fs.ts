@@ -401,6 +401,7 @@ export class FileSystemAccessWorkspace implements WorkspaceFileSystem {
     const granted = await ensurePermission(this.rootHandle, "readwrite");
     if (!granted) throw new Error("Write permission denied for workspace");
     const { handle } = await this.getFileHandleByPath(path, true);
+    if (!handle) throw new Error(`Unable to create file: ${path}`);
     const writable = await handle.createWritable();
     await writable.write(contents);
     await writable.close();
