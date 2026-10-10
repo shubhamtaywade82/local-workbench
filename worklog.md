@@ -317,3 +317,40 @@ Stage Summary:
   9. AI backend tested via curl: /api/ai/models returns the model list; /api/ai/chat streams deltas correctly.
 
 - Dev server: running on port 3000 via `bun run dev`. Lint clean. Ready for preview.
+
+---
+Task ID: WS-SWITCHER
+Agent: orchestrator (main)
+Task: Add visible UI to switch workspace/project/directory (was missing — only command palette had the actions).
+
+Work Log:
+- Added `closeAllTabs` action to the workbench store so switching workspaces doesn't leave stale tabs from the previous workspace.
+- Added `confirmSwitchWorkspace()` helper to the workspace controller — prompts before switching when there are unsaved changes (recovery drafts are still preserved in IndexedDB).
+- Updated `openSampleWorkspace` and `openLocalDirectory` to call `closeAllTabs` and `confirmSwitchWorkspace` before opening the new workspace.
+- Created `src/features/workbench/shell/workspace-switcher.tsx`:
+  - Dropdown button (Radix DropdownMenu) with current workspace info, "Open local folder…", "Open sample workspace", and a "Recent" list (loaded from IndexedDB on open).
+  - Recent workspaces are clickable to reopen. For in-memory (sample) workspaces we reopen directly; for FSA workspaces we re-trigger the picker because browser security prevents persisting the handle across sessions.
+  - Each recent item has a relative timestamp ("just now", "5m ago", "2d ago") and an × button to remove it from recents.
+  - `variant="compact"` for the status bar; `variant="default"` for the explorer.
+- Wired into `FileExplorer`:
+  - Added an always-visible "Open folder…" icon button in the explorer header (FolderOpen icon, before New file/New folder/Refresh).
+  - Replaced the static workspace name row with the `<WorkspaceSwitcher />` dropdown.
+- Wired into `StatusBar`:
+  - Replaced the static workspace name + source span with `<WorkspaceSwitcher variant="compact" />`.
+
+Stage Summary:
+- Files added: src/features/workbench/shell/workspace-switcher.tsx
+- Files modified:
+  - src/features/workbench/store.ts (added closeAllTabs action + interface decl)
+  - src/platform/filesystem/use-workspace-controller.ts (confirmSwitchWorkspace + closeAllTabs on switch)
+  - src/features/workbench/file-explorer/file-explorer.tsx (FolderOpen button + WorkspaceSwitcher)
+  - src/features/workbench/status-bar/status-bar.tsx (compact WorkspaceSwitcher)
+- Lint: PASS.
+- Agent Browser verification:
+  - Explorer header has a FolderOpen button (always visible, disabled if FSA API unavailable). ✅
+  - Clicking the workspace switcher opens a dropdown with: current workspace info, Open local folder…, Open sample workspace, Recent list. ✅
+  - Clicking "Open sample workspace" in the menu reopens the sample workspace (closeAllTabs fired, fresh state). ✅
+  - The same switcher is in the status bar (compact variant) — opens the same dropdown. ✅
+  - Sticky footer still works: footerBottom === viewportHeight (900 === 900). ✅
+  - No console errors. ✅
+- Dev server: running on port 3000 via `bun run dev`.

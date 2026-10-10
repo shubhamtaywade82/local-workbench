@@ -18,9 +18,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMemo } from "react";
+import { WorkspaceSwitcher } from "@/features/workbench/shell/workspace-switcher";
 
 export function StatusBar() {
-  const workspace = useWorkbench((s) => s.workspace);
   const activeTab = useWorkbench((s) => s.activeTab);
   const sessions = useWorkbench((s) => s.sessions);
   const explorerVisible = useWorkbench((s) => s.explorerVisible);
@@ -84,13 +84,11 @@ export function StatusBar() {
         </button>
       </div>
 
-      <div className="flex items-center gap-3 border-l px-3 py-1">
-        <span className="truncate">
-          {workspace ? workspace.name : "no workspace"}
-        </span>
-        {workspace && (
-          <span className="opacity-60">{workspace.source}</span>
-        )}
+      <div className="flex items-center gap-3 border-l px-2 py-0.5">
+        <WorkspaceSwitcher
+          variant="compact"
+          className="hover:bg-primary-foreground/10"
+        />
       </div>
 
       {activeTab && (

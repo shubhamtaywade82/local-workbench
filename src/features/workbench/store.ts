@@ -81,6 +81,7 @@ interface WorkbenchState {
 
   openTab: (tab: OpenTab, initialContent: string) => void;
   closeTab: (path: string) => void;
+  closeAllTabs: () => void;
   setActiveTab: (path: string | null) => void;
   updateDraft: (path: string, text: string) => void;
   markSaved: (path: string, savedText: string) => void;
@@ -165,6 +166,14 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
             : null
           : state.activeTab;
       return { openTabs, sessions, diagnostics, activeTab };
+    }),
+
+  closeAllTabs: () =>
+    set({
+      openTabs: [],
+      sessions: {},
+      diagnostics: {},
+      activeTab: null,
     }),
 
   setActiveTab: (path) => set({ activeTab: path }),

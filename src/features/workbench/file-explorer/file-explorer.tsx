@@ -25,14 +25,16 @@ import {
 import { documentRegistry } from "@/documents/core/registry";
 import type { WorkspaceFileEntry } from "@/documents/core/types";
 import { cn } from "@/lib/utils";
+import { WorkspaceSwitcher } from "@/features/workbench/shell/workspace-switcher";
+import { isFileSystemAccessSupported } from "@/platform/filesystem/workspace-fs";
 
 export function FileExplorer() {
   const tree = useWorkbench((s) => s.tree);
-  const workspace = useWorkbench((s) => s.workspace);
   const treeLoading = useWorkbench((s) => s.treeLoading);
   const treeError = useWorkbench((s) => s.treeError);
   const setTree = useWorkbench((s) => s.setTree);
   const controller = useWorkspaceController();
+  const fsaSupported = isFileSystemAccessSupported();
 
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set([""]));
@@ -63,6 +65,16 @@ export function FileExplorer() {
           Explorer
         </span>
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => controller.openLocalDirectory()}
+            disabled={!fsaSupported}
+            title={fsaSupported ? "Open folder…" : "File System Access API unavailable — use Chrome or Edge desktop"}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -105,11 +117,9 @@ export function FileExplorer() {
         </div>
       </div>
 
-      {/* Workspace name + filter */}
+      {/* Workspace switcher + filter */}
       <div className="border-b px-2 py-1.5">
-        <div className="truncate text-xs font-medium">
-          {workspace?.name ?? "no workspace"}
-        </div>
+        <WorkspaceSwitcher />
         <Input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
