@@ -265,7 +265,7 @@ export function AiAssistant() {
           }),
         });
         const json = await res.json();
-        if (json.error) throw new Error(json.error);
+        if (json.error) throw new Error(typeof json.error === "string" ? json.error : JSON.stringify(json.error));
         updateMessage(assistantId, {
           content: `Converted ${adapter.id} → ${target}. Review and apply below.`,
           streaming: false,
@@ -299,7 +299,7 @@ export function AiAssistant() {
           body: JSON.stringify({ description, type }),
         });
         const json = await res.json();
-        if (json.error) throw new Error(json.error);
+        if (json.error) throw new Error(typeof json.error === "string" ? json.error : JSON.stringify(json.error));
         updateMessage(assistantId, {
           content: `Generated Mermaid diagram. Review and apply below.`,
           streaming: false,
@@ -324,7 +324,7 @@ export function AiAssistant() {
           }),
         });
         const json = await res.json();
-        if (json.error) throw new Error(json.error);
+        if (json.error) throw new Error(typeof json.error === "string" ? json.error : JSON.stringify(json.error));
         if (json.format === "openui") {
           updateMessage(assistantId, {
             content: json.explanation ?? "",
@@ -356,7 +356,7 @@ export function AiAssistant() {
           }),
         });
         const json = await res.json();
-        if (json.error) throw new Error(json.error);
+        if (json.error) throw new Error(typeof json.error === "string" ? json.error : JSON.stringify(json.error));
         const edit = json.proposedEdit;
         updateMessage(assistantId, {
           content: `${edit.label ?? "Apply AI suggestion"}${edit.description ? ` — ${edit.description}` : ""}`,
@@ -380,7 +380,7 @@ export function AiAssistant() {
           }),
         });
         const json = await res.json();
-        if (json.error) throw new Error(json.error);
+        if (json.error) throw new Error(typeof json.error === "string" ? json.error : JSON.stringify(json.error));
         updateMessage(assistantId, {
           content: `Improved Markdown. Review and apply below.${json.diff ? "" : ""}`,
           streaming: false,
@@ -396,9 +396,9 @@ export function AiAssistant() {
       }
     } catch (err) {
       updateMessage(assistantId, {
-        content: `Error: ${(err as Error).message}`,
+        content: `Error: ${err instanceof Error ? err.message : String(err)}`,
         streaming: false,
-        error: (err as Error).message,
+        error: err instanceof Error ? err.message : String(err),
       });
     } finally {
       setAiBusy(false);
