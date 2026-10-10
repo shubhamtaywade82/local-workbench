@@ -11,6 +11,7 @@
 "use client";
 
 import { openDB, type IDBPDatabase } from "idb";
+import type { Workspace } from "@/documents/core/types";
 
 const DB_NAME = "workbench-store";
 const DB_VERSION = 1;
@@ -21,7 +22,7 @@ const STORE_SETTINGS = "settings";
 export interface RecentWorkspace {
   id: string;
   name: string;
-  source: "file-system-access" | "in-memory";
+  source: Workspace["source"];
   createdAt: number;
   lastOpenedAt: number;
   /** IndexedDB cannot store FileSystemHandle objects across sessions in all

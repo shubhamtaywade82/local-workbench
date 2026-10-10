@@ -41,8 +41,9 @@ type MonacoNamespace = {
       owner: string,
       markers: unknown[]
     ) => void;
-    MarkerSeverity: { Error: number; Warning: number; Info: number; Hint: number };
   };
+  // Monaco exposes MarkerSeverity at the namespace root, not under `editor`.
+  MarkerSeverity: { Error: number; Warning: number; Info: number; Hint: number };
 };
 
 export function EditorPane() {

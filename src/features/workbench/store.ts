@@ -35,12 +35,18 @@ export interface AiMessage {
   };
   error?: string;
   createdAt: number;
+  /** Content may contain ```openui-lang blocks rendered as generative UI. */
+  generativeUi?: boolean;
+  /** Document path the message was generated against (target for proposed edits). */
+  contextPath?: string;
 }
 
 export interface AiProviderInfo {
   id: string;
   name: string;
   available: boolean;
+  /** Server has AI_GENERATIVE_UI enabled. */
+  generativeUi?: boolean;
 }
 
 interface WorkbenchState {

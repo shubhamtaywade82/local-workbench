@@ -1,14 +1,33 @@
 import { NextResponse } from "next/server";
-import { getAiProvider, getDefaultModel, getOllamaClient, getOllamaEndpointHealth } from "@/lib/ai/server";
+import {
+  errorMessage,
+  getAiProvider,
+  getDefaultModel,
+  getOllamaClient,
+  getOllamaEndpointHealth,
+} from "@/lib/ai/server";
+import { isGenerativeUiEnabled } from "@/lib/ai/generative-ui/prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+interface EndpointReport {
+  name: string;
+  baseUrl: string;
+  healthy: boolean;
+  activeRequests: number;
+  latencyMs?: number;
+  version?: string;
+  error?: string;
+}
+
 /**
  * GET /api/ai/models
  *
- * Returns the configured model using the OpenAI Chat Completions API format.
- * Supports both OpenAI-compatible APIs and Ollama (including multi-endpoint pools).
+ * Returns the configured model and provider availability. For Ollama every
+ * configured endpoint is probed in parallel (`/api/version`) and merged with
+ * the client's circuit-breaker state, so a multi-endpoint pool reports
+ * available as long as at least one endpoint can serve traffic.
  */
 export async function GET() {
   const provider = getAiProvider();
@@ -17,7 +36,7 @@ export async function GET() {
   let available = false;
   let providerName = "";
   let providerId = "";
-  let endpoints: Array<{ name: string; baseUrl: string; healthy: boolean; activeRequests: number }> | undefined;
+  let endpoints: EndpointReport[] | undefined;
 
   if (provider === "ollama") {
     providerId = "ollama";
@@ -25,21 +44,24 @@ export async function GET() {
     try {
       const client = getOllamaClient();
       if (client) {
-        await client.listModels();
-        available = true;
-
-        // Get endpoint health for multi-endpoint pools
-        const health = getOllamaEndpointHealth();
-        if (health && health.length > 0) {
-          endpoints = health.map((h) => ({
-            name: h.name,
-            baseUrl: h.baseUrl,
-            healthy: h.failureCount === 0 && !h.isCoolingDown,
-            activeRequests: h.activeRequests,
-          }));
-        }
+        const probes = await client.healthCheck();
+        const breaker = new Map((getOllamaEndpointHealth() ?? []).map((h) => [h.name, h]));
+        endpoints = probes.map((p) => {
+          const state = breaker.get(p.name);
+          return {
+            name: p.name,
+            baseUrl: p.baseUrl,
+            healthy: p.reachable && !state?.isCoolingDown,
+            activeRequests: state?.activeRequests ?? 0,
+            latencyMs: p.latencyMs,
+            ...(p.version !== undefined ? { version: p.version } : {}),
+            ...(p.error !== undefined ? { error: p.error } : {}),
+          };
+        });
+        available = endpoints.some((e) => e.healthy);
       }
-    } catch {
+    } catch (err) {
+      console.warn("[AI] Ollama availability probe failed:", errorMessage(err));
       available = false;
     }
   } else {
@@ -55,6 +77,7 @@ export async function GET() {
       available,
     },
     models: [{ id: model, name: model }],
+    features: { generativeUi: isGenerativeUiEnabled() },
     ...(endpoints ? { endpoints } : {}),
   });
 }

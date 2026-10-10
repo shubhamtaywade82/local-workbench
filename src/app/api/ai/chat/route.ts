@@ -4,6 +4,7 @@ import {
   errorMessage,
   getOpenAICompatible,
 } from "@/lib/ai/server";
+import { getGenerativeUiPrompt, isGenerativeUiEnabled } from "@/lib/ai/generative-ui/prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,8 @@ interface ChatRequestBody {
   messages: ChatMessage[];
   model?: string;
   context?: ChatContext;
+  /** Client opt-in; honoured only when the server has AI_GENERATIVE_UI enabled. */
+  generativeUi?: boolean;
 }
 
 /**
@@ -100,7 +103,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  const systemPrompt = buildSystemPrompt(body.context);
+  const generativeUi = body.generativeUi === true && isGenerativeUiEnabled();
+  const systemPrompt = generativeUi
+    ? `${buildSystemPrompt(body.context)}\n\n${getGenerativeUiPrompt()}`
+    : buildSystemPrompt(body.context);
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
     ...body.messages,
@@ -112,21 +118,35 @@ export async function POST(req: NextRequest): Promise<Response> {
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
+    // Tells the client whether the response may contain openui-lang blocks.
+    "X-Generative-UI": generativeUi ? "1" : "0",
   };
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (obj: unknown) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      let closed = false;
+      // Once the client disconnects the stream is cancelled; enqueueing after
+      // that throws, so every write is guarded.
+      req.signal.addEventListener("abort", () => {
+        closed = true;
+      }, { once: true });
+      const write = (text: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(text));
+        } catch {
+          closed = true;
+        }
       };
+      const send = (obj: unknown) => write(`data: ${JSON.stringify(obj)}\n\n`);
       try {
         const openai = getOpenAICompatible();
         const upstream = await openai.chat.completions.create({
           model,
           messages,
           stream: true,
-        });
+        }, { signal: req.signal });
 
         for await (const chunk of upstream) {
           const delta = chunk?.choices?.[0]?.delta?.content;
@@ -136,10 +156,13 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
         send({ delta: "", done: true });
       } catch (err) {
-        send({ error: errorMessage(err) });
+        if (!req.signal.aborted) send({ error: errorMessage(err) });
       } finally {
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        controller.close();
+        write("data: [DONE]\n\n");
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
       }
     },
   });
