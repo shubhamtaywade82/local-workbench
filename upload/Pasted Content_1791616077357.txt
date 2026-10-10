@@ -1,0 +1,672 @@
+Worked for 5m 22s
+
+### Build a local-first AI document editor
+
+The right approach is to build a browser-based, workspace-aware editor with a pluggable document preview engine and an AI development assistant. Think of the workspace experience of VS Code or Cursor, combined with the instant previews of a documentation editor and the format-awareness of a configuration IDE.
+
+The critical architectural decision is to avoid building a separate editor for every file type. Instead, build one editing environment and give each document format its own language support, parser, preview renderer, diagnostics, and optional AI actions.
+
+![\[vscode\] 기초 사용법과 단축키](https://images.openai.com/static-rsc-4/BM8HMlcyJoIjRLsEzD48aVhoepJnAzmKV0yAYihKGkAGenohgifpAsD6-Q7f9SEBJnNLxBjhrLHb0TqPkbx8GDchqQc74zQWSr4H-ZaQa1lP6-9SNvZb14xUHts6yCQzvtlNfLFBhTXcDoi0Dd0sVo6H8-wYsOdWTiU16ziAJxCeimHlkZIRIqe906ouohq6?purpose=fullsize)
+
+1\. Workspace IDE
+
+Open a local directory, browse nested files, open multiple tabs, edit files, manage unsaved changes, search content, and save directly to the selected workspace.
+
+![Markdown Live View - Visual Studio Marketplace](https://images.openai.com/static-rsc-4/cVu2D5ml8oea34YfWv69L79HI0Tq-f-zZGpbjiNtk-kgthX5I3QJPsFzdxFsKjuRnWh85yuAnLNT7K8Z3GgvjHLJnk2mO9ZWCEQxrm-Yvw70rohQ3wuly3YU5W4N9baCoLoUo2BiVZMyXT7uWoxPBxM1rFWZ7NFBAQsqkiVxj8ZlIjFnbb_LcEUoHmQ9YGGH?purpose=fullsize)
+
+2\. Live document preview
+
+Render Markdown, inspect structured data, visualize diagrams, explore XML, and preview supported formats while editing their source.
+
+![AI Coding: From Code Completion to Knowledge Alignment | by JIN | 𝐀𝐈 𝐦𝐨𝐧𝐤𝐬.𝐢𝐨 | Medium](https://images.openai.com/static-rsc-4/RlkCrzpbDfG_JXUmpPh3KBDTVmKUPLSSH0FtnxWqEV2-ee5O4HTJB4wwRI4YrT8k5enXHOFPmdwNI8cwWh8pDRj4enu9drnMCqaJvc_alygJ69y4PqO3Gh0GL0boQeGxepMGD_0AnYJ4S0bomHrr6hdPFy2mPmCetWTy4qG3SjG66-HKEZ-no6Bwvv4MVl3U?purpose=fullsize)
+
+3\. AI and quality assistant
+
+Context-aware autocomplete, lint diagnostics, explain-document actions, suggested fixes, schema generation, format conversion, and structured edits backed by an LLM.
+
+### 1\. The core product experience
+
+### Local Workbench
+
+Local workspace
+
+Workspace
+
+Editor
+
+Preview
+
+Explorer
+
+project/
+
+README.md
+
+package.json
+
+config.yaml
+
+architecture.mmd
+
+docs/
+
+Source · config.yaml
+
+app: name: workbench port: 3000 features: preview: true ai: true
+
+Valid YAML
+
+Preview · Parsed configuration
+
+app.name
+
+workbench
+
+app.port
+
+3000
+
+features.ai
+
+Enabled
+
+Diagnostics: 0 errors
+
+AI: connected
+
+Concept mockup illustrating the intended layout; the actual interface should include resizable panes, tabs, keyboard shortcuts and per-file preview modes.
+
+The interaction should be predictable: the user edits source on one side, sees the appropriate rendered or structured representation on the other, gets diagnostics as the content changes, and can explicitly apply or reject AI-generated changes.
+
+One important constraint: browser-based direct folder access is supported through the File System Access API, but it is not available consistently across all browsers. The API requires user-granted access and a secure context. Chrome and Edge desktop are the sensible primary targets for a first version, with a reduced-capability fallback for other browsers.
+
+### 2\. Recommended technical architecture
+
+Use a local-first React + TypeScript application, with Monaco as the editor and a plugin-based document engine. The first release does not need a backend server, database server, or agent runtime of its own.
+
+```mermaid
+
+flowchart TB
+    UI["Workspace UI"]
+    UI --> EX["File Explorer and Tabs"]
+    UI --> ED["Editor Controller"]
+    UI --> PV["Preview Pane"]
+    ED --> DS["Document Sessions"]
+    DS --> FS["Workspace File Adapter"]
+    FS --> BROWSER["Browser File System API"]
+    DS --> REG["Document Adapter Registry"]
+    REG --> PARSE["Parsers and Validators"]
+    REG --> RENDER["Preview Renderers"]
+    REG --> LINT["Diagnostics and Formatters"]
+    PARSE --> PV
+    RENDER --> PV
+    LINT --> PROBLEMS["Problems Panel"]
+    ED --> AI["AI Orchestrator"]
+    PROBLEMS --> AI
+    AI --> POLICY["Context and Privacy Policy"]
+    POLICY --> PROVIDER["LLM Provider Interface"]
+    PROVIDER --> OLLAMA["Local Ollama"]
+    PROVIDER --> REMOTE["Optional Remote Provider"]
+```
+
+The important separation is between the editor, the document format, the preview, and the AI provider. Adding a new format should not require rewriting the workspace shell.
+
+### Recommended stack
+
+| Layer                 | Technology                                  | Responsibility                                                                |
+| --------------------- | ------------------------------------------- | ----------------------------------------------------------------------------- |
+| Application           | React + TypeScript + Vite                   | Browser application and development tooling                                   |
+| Editor                | Monaco Editor                               | Editing, syntax highlighting, selections, completion APIs, editor diagnostics |
+| UI                    | Tailwind CSS + a reusable component library | IDE layout, tabs, panels, dialogs and command palette                         |
+| Workspace             | File System Access API                      | Read and write explicitly authorized local files                              |
+| Workspace persistence | IndexedDB                                   | Recent workspaces, settings, recovery drafts and permitted handle metadata    |
+| Document engine       | TypeScript adapter registry                 | Dispatch file formats to parsers, validators and renderers                    |
+| Markdown              | react-markdown + remark/rehype ecosystem    | Markdown parsing, GFM, mathematical notation and safe rendering               |
+| Diagrams              | Mermaid                                     | First-class diagram rendering                                                 |
+| Data formats          | Dedicated parsers per format                | Parse errors, structured views and format-aware actions                       |
+| AI                    | Provider interface + Ollama                 | Local LLM inference, streaming responses and model selection                  |
+| Testing               | Vitest + React Testing Library + Playwright | Unit, component, integration and browser end-to-end tests                     |
+
+Monaco is a good fit because it is the browser editor derived from VS Code's editor sources. However, Monaco is not the VS Code extension host; existing VS Code extensions do not automatically work inside it. Its worker configuration and bundle size also need deliberate attention. 【turn282569search0】【turn282569search3】
+
+### 3\. Design the document adapter system first
+
+This is the most consequential architectural decision.
+
+Do not implement rendering with code such as:
+
+```ts
+if (file.endsWith(".md")) {
+  // Render Markdown
+} else if (file.endsWith(".json")) {
+  // Render JSON
+} else if (file.endsWith(".yaml")) {
+  // Render YAML
+}
+```
+
+That approach becomes difficult to maintain as support expands to JSON variants, schemas, configuration files, diagram types, and rich-text editors.
+
+Instead, use a registry.
+
+### Document adapter contract
+
+```ts
+export interface DocumentAdapter {
+  id: string;
+  extensions: readonly string[];
+  languageId: string;
+
+  parse(source: string): ParseResult;
+  createPreview(source: string): PreviewModel;
+
+  validate?(source: string): Diagnostic[];
+  format?(source: string): Promise<TextEdit[]>;
+  getCompletions?(context: CompletionContext): CompletionItem[];
+}
+
+export type ParseResult =
+  | {
+      valid: true;
+      value: unknown;
+      diagnostics: Diagnostic[];
+    }
+  | {
+      valid: false;
+      diagnostics: Diagnostic[];
+    };
+```
+
+`PreviewModel`, `Diagnostic`, `TextEdit` and the other referenced types should be separately defined, with versioned, testable contracts.
+
+Each adapter owns its format-specific behavior. A Markdown adapter generates rendered documentation; a JSON adapter generates a structured data view; a Mermaid adapter generates a diagram model.
+
+Use a registry to select the adapter:
+
+```ts
+const adapter = documentRegistry.resolve(filePath);
+
+const parseResult = adapter.parse(source);
+const preview = adapter.createPreview(source);
+```
+
+These are illustrative contract examples, not a complete implementation. The production registry must also handle unsupported extensions, ambiguous file names, parser failures, cancellation, and stale results.
+
+### Preview models should be typed
+
+Prefer a controlled set of preview outputs rather than allowing every adapter to inject arbitrary HTML into the application.
+
+For example:
+
+```ts
+type PreviewModel =
+  | { kind: "markdown"; source: string }
+  | { kind: "structured-data"; format: string; value: unknown }
+  | { kind: "diagram"; engine: string; source: string }
+  | { kind: "xml-tree"; source: string }
+  | { kind: "sandboxed-html"; source: string }
+  | { kind: "text-fallback"; source: string };
+```
+
+This gives you a stable boundary for previews, security controls, testing, and future extensions.
+
+### 4\. Exact file-format support strategy
+
+A broad format list is achievable, but each format needs a defined editing and preview experience. Merely highlighting its syntax is not equivalent to supporting it properly.
+
+### Phase A — first-class formats in the initial release
+
+Markdown: `.md`, `.markdown`
+
+Rendered headings, tables, task lists, fenced code, syntax highlighting, links, images and optional mathematical notation. Support Mermaid code fences inside documents. Raw HTML must remain sanitized.
+
+JSON family
+
+`.json`, `.jsonc`, `.json5`, `.jsonl`, `.ndjson`, and JSON Schema documents. Provide structured tree/table previews, formatting, syntax diagnostics, line-specific errors for JSON Lines, and optional schema validation.
+
+Configuration formats
+
+`.yaml`, `.yml` and `.toml`. Provide format-aware editing, parsed structure, syntax diagnostics and schema/rule validation where applicable.
+
+Mermaid: `.mmd`, `.mermaid`
+
+Live flowcharts, sequence diagrams, state diagrams, entity relationship diagrams and other diagram types supported by the installed Mermaid version.
+
+XML: `.xml`
+
+Syntax-aware editing, parsed tree view, element/attribute inspection, malformed-document diagnostics and optional XPath tooling later.
+
+TOON: `.toon`
+
+Parse the Token-Oriented Object Notation representation, show its structured data, validate it and support conversion between JSON and TOON.
+
+For the initial parsers, use established implementations instead of writing grammars yourself:
+
+| Format   | Candidate implementation         | Important consideration                                                                                                                  |
+| -------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| JSONC    | jsonc-parser                     | Error recovery, source locations and structured edits. 【turn341776search7】                                                               |
+| JSON5    | json5                            | Its syntax is intentionally more permissive than standard JSON. 【turn341776search8】                                                      |
+| YAML     | yaml                             | Supports parsing, document structures and source-preserving operations. 【turn282569search1】【turn282569search2】                           |
+| TOML     | smol-toml                        | Pin a tested version and preserve source carefully when formatting. 【turn341776search1】                                                  |
+| TOON     | @toon-format/toon                | Use its official implementation and fixtures; pin the version because format conformance evolves. 【turn282569search4】【turn859817search1】 |
+| Markdown | react-markdown and remark/rehype | Sanitize HTML if raw HTML handling is enabled. 【turn341776search14】【turn341776search9】                                                   |
+
+Important for TOON: Do not treat it as just another JSON extension. Use its own parser and formatter, and add round-trip and conformance tests. The official TOON specification is published as a working draft. 【turn859817search1】
+
+### Phase B — rich-text and advanced diagram extensions
+
+Add these after the initial document engine is stable:
+
+* Rich-text authoring: a WYSIWYG Markdown mode with source synchronization. Do not implement this by trying to transform every file into rich text.
+
+* HTML: an isolated, sandboxed preview; execution of embedded JavaScript should not be enabled by default.
+
+* Other diagram languages: Graphviz/DOT, PlantUML and D2 through individual renderer adapters.
+
+* Specialized visualizations: add adapters for formats such as Vega-Lite specifications when there is a clear user need.
+
+Mermaid should be the first diagram renderer because it provides a strong initial experience for architecture, flow and sequence diagrams. Configure a restrictive security level; Mermaid documents `strict` as the default that encodes HTML tags and disables click functionality. 【turn859817search10】
+
+There is no realistic single-pass implementation of “all file types and all diagram types.” The extensible registry is how you achieve broad coverage without forcing a redesign for each new format.
+
+### 5\. Real-time editing and preview synchronization
+
+The editing experience should be immediate without blocking the editor on every keystroke.
+
+Use this pipeline:
+
+```mermaid
+
+flowchart TD
+    CHANGE["Editor text changes"]
+    CHANGE --> REV["Increment document revision"]
+    REV --> DIRTY["Update unsaved state"]
+    REV --> DEBOUNCE["Debounce preview and diagnostics"]
+    DEBOUNCE --> WORKER["Parse and validate"]
+    WORKER --> CHECK{"Result revision still current?"}
+    CHECK -- No --> DISCARD["Discard stale result"]
+    CHECK -- Yes --> UPDATE["Update preview and diagnostics"]
+```
+
+The document session should track at least:
+
+```ts
+interface DocumentSession {
+  path: string;
+  savedText: string;
+  draftText: string;
+  revision: number;
+  savedRevision: number;
+  isDirty: boolean;
+}
+```
+
+These fields describe the in-memory state; the actual implementation will also need disk-version metadata, permissions, save status and diagnostics.
+
+### Non-negotiable behavior
+
+* Text changes appear immediately in the editor.
+
+* Preview rendering is debounced; start with approximately 150–250 ms and tune based on benchmarks.
+
+* Expensive parsing and rendering should run in Web Workers where practical.
+
+* Out-of-order parser and AI responses must not overwrite newer document state.
+
+* Invalid source displays useful errors instead of silently showing a misleading preview.
+
+* When a document grows large, preserve editing responsiveness even if preview refreshes become slower.
+
+Use the same document revision system for AI suggestions. If an AI response was generated for an older version of the document, do not apply its patch blindly.
+
+### 6\. Local workspace access and file management
+
+The workspace adapter should have a clean contract independent of the browser's storage implementation.
+
+```ts
+interface WorkspaceFileSystem {
+  openWorkspace(): Promise<Workspace>;
+  listDirectory(path: string): Promise<FileEntry[]>;
+  readFile(path: string): Promise<string>;
+  writeFile(path: string, contents: string): Promise<void>;
+  createFile(path: string): Promise<void>;
+  createDirectory(path: string): Promise<void>;
+  rename(path: string, newPath: string): Promise<void>;
+  delete(path: string): Promise<void>;
+}
+```
+
+The browser-specific implementation will use directory/file handles and explicit permission checks. A fake implementation should also exist for automated tests.
+
+### File lifecycle
+
+* The user chooses Open Workspace.
+
+* The browser displays the native directory picker.
+
+* The application receives the approved workspace handle and requests write permission when needed.
+
+* The Explorer loads directories lazily instead of recursively reading every file immediately.
+
+* The user opens a document; its contents load into an editor model.
+
+* Changes update the in-memory document session and preview.
+
+* Save validates permissions and checks for possible external modifications.
+
+* The application writes the new content, updates the saved revision and clears the dirty indicator.
+
+Browser folder access is permission-based. The File System Access API allows read/write operations and directory enumeration, but a site cannot silently acquire unrestricted access to the user's device. 【turn282569search7】【turn859817search3】
+
+### Handle these cases explicitly
+
+* A folder has read permission but not write permission.
+
+* Permission is revoked or must be requested again.
+
+* A local file is deleted or renamed outside the application.
+
+* The file on disk changes while an editor tab has unsaved modifications.
+
+* The user closes or refreshes the page with dirty tabs.
+
+* A workspace contains thousands of files or a huge `node_modules` tree.
+
+The browser does not provide a universally compatible desktop-style workspace experience. Start with Chromium desktop browsers, use IndexedDB to store workspace metadata where permitted, and provide a fallback that opens individual files or imports folders and exports edited results. Persisting a handle does not guarantee that the browser will retain its permission indefinitely.
+
+Do not overwrite a file that changed externally without detecting the conflict. Compare its known disk version before saving and offer reload, compare, merge or explicitly confirmed overwrite.
+
+### 7\. AI integration: autocomplete, explanation and fixes
+
+Treat the AI functionality as a separate subsystem, not a feature tightly coupled to Monaco.
+
+The editor should work fully without any LLM configured. Parsers, deterministic linting, formatting, previewing and local file operations must remain independent of the AI provider.
+
+### Provider contract
+
+```ts
+interface LLMProvider {
+  listModels(): Promise<ModelInfo[]>;
+
+  complete(
+    request: CompletionRequest
+  ): Promise<CompletionResponse>;
+
+  stream(
+    request: ChatRequest,
+    signal?: AbortSignal
+  ): AsyncIterable<ChatChunk>;
+}
+```
+
+Use a provider adapter for Ollama initially, then add compatible remote providers behind the same boundary.
+
+### AI features to implement
+
+| Feature                 | Expected behavior                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| Contextual autocomplete | Suggest format-aware keys, values, expressions or text; do not call an LLM on every keystroke. |
+| Explain document        | Describe what the current document does and flag ambiguity.                                    |
+| Explain diagnostics     | Explain a parser, linter or schema error in context.                                           |
+| Suggest fix             | Return a proposed patch or edit set, not an unconditional write.                               |
+| Refactor document       | Modify a selected block or whole document with an inspectable diff.                            |
+| Generate schema         | Produce a JSON Schema or another supported validation artifact from explicit input.            |
+| Convert formats         | Convert a selected representation, such as YAML to JSON or JSON to TOON.                       |
+| Generate diagrams       | Draft Mermaid from an explicit architecture description, with validation before preview.       |
+| Improve documentation   | Rewrite selected Markdown while preserving requested structure and code blocks.                |
+
+### Separate deterministic linting from AI suggestions
+
+The correct pipeline is:
+
+```mermaid
+
+flowchart TD
+    DOC["Current document"]
+    DOC --> LINT["Deterministic parser and linter"]
+    LINT --> DIAG["Structured diagnostics"]
+    DIAG --> FIX["Safe deterministic quick fixes"]
+    DIAG --> AI["Optional AI explanation or patch"]
+    FIX --> REVIEW["Review changes"]
+    AI --> REVIEW
+    REVIEW --> APPLY{"User approves?"}
+    APPLY -- Yes --> EDIT["Apply to editor buffer"]
+    APPLY -- No --> DISCARD["Discard suggestion"]
+    EDIT --> SAVE["Explicit save or configured autosave"]
+```
+
+Do not use an LLM to decide whether JSON parses correctly or whether XML is well-formed. Those are deterministic tasks.
+
+Use AI when the problem requires semantic interpretation, reasoning, rewriting or more context than a fixed rule can capture.
+
+### A sensible local-first AI setup
+
+Given the local Ollama deployment in your workflow, start with this configuration:
+
+* Default: the configured local Ollama model.
+
+* Optional: user-configured remote, API-compatible providers.
+
+* Context by default: the current file or selected text only.
+
+* Related-file context: explicitly selected by the user, with the exact context visible before submission.
+
+* AI changes: returned as edits/diffs and applied to the in-memory editor only after approval.
+
+* Persistence: no silent upload of documents, no automatic whole-workspace indexing for AI, and no raw document content in diagnostic logs.
+
+Ollama exposes local API endpoints and supports additional browser origins through the `OLLAMA_ORIGINS` environment variable. Configure only the intended development or application origin, keep the service bound to loopback unless there is a deliberate networking requirement, and do not treat CORS as authentication. 【turn703822view0】
+
+If remote AI is enabled, show an explicit privacy setting and disclose what context will leave the device. A local workspace does not mean local inference if the user selects a hosted LLM.
+
+### 8\. Linting, formatting and diagnostics
+
+Create a common diagnostics model so all document types appear in one Problems panel and can also be rendered as Monaco markers.
+
+```ts
+interface Diagnostic {
+  filePath: string;
+  severity: "error" | "warning" | "info";
+  message: string;
+  source: string;
+  code?: string;
+  range?: {
+    startLine: number;
+    startColumn: number;
+    endLine: number;
+    endColumn: number;
+  };
+  fixes?: TextEdit[];
+}
+```
+
+Each document adapter can produce this format. The workspace should aggregate diagnostics across open documents and, later, background-validated files.
+
+A useful separation is:
+
+* Parser diagnostics: malformed source or invalid syntax.
+
+* Schema diagnostics: valid syntax that violates a declared schema.
+
+* Style diagnostics: formatting, naming and consistency issues.
+
+* Semantic diagnostics: meaning-related rules where a reliable validator exists.
+
+* AI suggestions: advisory explanations and proposed changes, never falsely represented as proven validation results.
+
+For formatting and quick fixes, use deterministic formatters and explicit text edits. Before applying edits, validate that their ranges still refer to the intended document revision.
+
+### 9\. Security model
+
+A local editor handles arbitrary user-selected documents. Some of those documents may be malicious. Security must be part of the design, not a cleanup task before release.
+
+Preview isolation
+
+Never execute arbitrary Markdown, XML, YAML or HTML content as application code. Sanitize Markdown HTML. Render HTML in a sandboxed iframe with a restrictive Content Security Policy. Do not automatically fetch arbitrary external resources.
+
+Controlled file operations
+
+Access only explicitly authorized workspace handles. Validate paths, enforce root boundaries, and require deliberate confirmation for destructive operations and overwrite conflicts.
+
+AI isolation
+
+Treat the content of a document as untrusted data even when it contains instructions to the LLM. The AI should not receive unrestricted filesystem or shell access. Review every proposed edit, with disk writes controlled by the normal save process.
+
+Secrets and privacy
+
+Exclude credential-bearing files such as `.env` and private keys from background AI context by default. Never send entire workspaces implicitly. Keep logs redacted and make provider selection explicit.
+
+Markdown rendering with `react-markdown` is safe by default, while enabling raw HTML requires additional care. The remark/rehype ecosystem documents the use of `rehype-sanitize` to remove unsafe attributes. 【turn341776search14】【turn341776search9】
+
+### 10\. Repository structure
+
+Start as a modular TypeScript application. Avoid building a multi-service platform before the editor has one complete, tested workflow.
+
+```text
+local-workbench/
+├── src/
+│   ├── app/
+│   │   ├── App.tsx
+│   │   └── routes.tsx
+│   ├── features/
+│   │   ├── workspace/
+│   │   ├── explorer/
+│   │   ├── tabs/
+│   │   ├── editor/
+│   │   ├── preview/
+│   │   ├── diagnostics/
+│   │   └── ai-assistant/
+│   ├── platform/
+│   │   ├── filesystem/
+│   │   ├── persistence/
+│   │   └── llm/
+│   ├── documents/
+│   │   ├── core/
+│   │   │   ├── registry.ts
+│   │   │   ├── types.ts
+│   │   │   └── session.ts
+│   │   └── adapters/
+│   │       ├── markdown/
+│   │       ├── json/
+│   │       ├── yaml/
+│   │       ├── toml/
+│   │       ├── xml/
+│   │       ├── toon/
+│   │       └── mermaid/
+│   ├── components/
+│   └── workers/
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── fixtures/
+│   └── e2e/
+├── public/
+├── package.json
+└── README.md
+```
+
+The `platform` directory should contain browser-specific storage and provider implementations, while `documents/core` should contain contracts and logic that can be tested without a browser.
+
+A local companion service is an optional future addition if you require reliable filesystem watchers, native file operations, stronger local AI integration or language servers. It is not necessary for the first version.
+
+### 11\. Implementation roadmap and completion criteria
+
+Build vertically, proving a usable workflow at every stage.
+
+### 01
+
+Workspace shell
+
+Explorer, tabs, Monaco, resizable editor/preview panes, theme, keyboard navigation and basic command palette.
+
+Done when: sample files can be opened, edited, switched between and shown with correct dirty indicators without needing local filesystem permissions.
+
+### 02
+
+Local workspace lifecycle
+
+Folder picker, lazy directory tree, read/write permissions, create/rename/delete, save, dirty-state protection, drafts and external-change conflict handling.
+
+Done when: opening a directory, editing a file and reopening it verifies saved content without overwriting conflicting disk changes silently.
+
+### 03
+
+Document engine and live preview
+
+Define the adapter contracts and registry, then implement Markdown, JSON-family previews and Mermaid. Expand to YAML, TOML, XML and TOON with format-specific rendering and diagnostics.
+
+Done when: edits refresh the correct preview, malformed files show useful errors, and stale parsing results never replace newer results.
+
+### 04
+
+Validation and safe fixes
+
+Common diagnostics, formatters, JSON Schema validation, quick-fix edit sets and a central Problems panel.
+
+Done when: each formatter and quick fix operates on the right document revision, preserves unrelated content and has automated regression tests.
+
+### 05
+
+AI assistant
+
+Local Ollama integration, model selection, completion, explain, rewrite, generated diagrams, format conversion and reviewable patch application.
+
+Done when: provider failure does not break editing, context scope is explicit, stale responses cannot overwrite work, and declined suggestions never modify the document.
+
+### 06
+
+Hardening and distribution
+
+Browser compatibility checks, malicious-document tests, performance measurements, keyboard accessibility, workspace recovery, offline UI assets and production packaging.
+
+Done when: critical browser workflows pass end-to-end tests, preview security is verified, and local-only mode can be tested for unexpected outbound requests.
+
+### Required test coverage
+
+Before calling the first release complete, verify the following:
+
+* Each supported adapter handles valid and malformed examples, with diagnostics mapped to meaningful source locations.
+
+* JSON↔TOON conversion passes round-trip tests for supported values.
+
+* Markdown and Mermaid previews cannot escape their intended rendering boundary.
+
+* Access denial and permission revocation produce actionable UI states.
+
+* Dirty tabs survive navigation within the app, and recoverable drafts can be restored after reload.
+
+* External file changes trigger conflict handling rather than silent data loss.
+
+* Slow AI responses, cancellation, malformed AI output and provider disconnection do not corrupt editor state.
+
+* Playwright verifies the full local workflow: open workspace → edit document → preview → save → reload → verify persisted content.
+
+### 12\. What I would deliberately defer
+
+Do not put the following into the first milestone:
+
+* An unrestricted agent capable of writing files and executing shell commands.
+
+* Automatic whole-workspace indexing for LLM context.
+
+* A WYSIWYG editor for every file format.
+
+* Every available diagram renderer.
+
+* Collaboration, accounts, cloud synchronization or a remote project database.
+
+* Complex plugin installation that executes third-party JavaScript.
+
+* Full VS Code extension compatibility.
+
+These features substantially increase the security and maintenance burden without proving the essential product value.
+
+### Final recommendation
+
+The first complete vertical slice should be:
+
+Open a local workspace → select `README.md` or `config.json` → edit in Monaco → get live Markdown or structured-data preview → see diagnostics → apply a proposed AI fix → explicitly save the corrected document.
+
+Implement that flow with robust session management, filesystem permissions and tests. Then add YAML, TOML, XML, TOON and additional diagram renderers through the document registry.
+
+This creates a working application early and gives every later feature a stable foundation, rather than producing a large but fragile editor that claims to support many formats without handling their edge cases correctly.
