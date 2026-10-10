@@ -2,8 +2,7 @@ import { NextRequest } from "next/server";
 import {
   DEFAULT_MODEL,
   errorMessage,
-  getZai,
-  parseSseStream,
+  getOpenAI,
 } from "@/lib/ai/server";
 
 export const runtime = "nodejs";
@@ -50,7 +49,7 @@ function buildSystemPrompt(context?: ChatContext): string {
   if (context?.adapterId) {
     parts.push(
       `The user is currently working with a "${context.adapterId}" document. ` +
-        "Tailor your answers to that format when relevant."
+      "Tailor your answers to that format when relevant."
     );
   }
   if (context?.languageId) {
@@ -63,8 +62,8 @@ function buildSystemPrompt(context?: ChatContext): string {
     const s = context.selection;
     parts.push(
       `The user is asking about the current selection spanning lines ` +
-        `${s.startLine}-${s.endLine} (columns ${s.startColumn}-${s.endColumn}). ` +
-        "Treat the question as referring to that span unless the user says otherwise."
+      `${s.startLine}-${s.endLine} (columns ${s.startColumn}-${s.endColumn}). ` +
+      "Treat the question as referring to that span unless the user says otherwise."
     );
   }
 
@@ -122,16 +121,14 @@ export async function POST(req: NextRequest): Promise<Response> {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       };
       try {
-        const zai = await getZai();
-        // `stream: true` causes the SDK to return the raw upstream SSE
-        // `ReadableStream<Uint8Array>` (it does NOT parse it for us).
-        const upstream = (await zai.chat.completions.create({
+        const openai = getOpenAI();
+        const upstream = await openai.chat.completions.create({
           model,
           messages,
           stream: true,
-        })) as ReadableStream<Uint8Array>;
+        });
 
-        for await (const chunk of parseSseStream(upstream)) {
+        for await (const chunk of upstream) {
           const delta = chunk?.choices?.[0]?.delta?.content;
           if (typeof delta === "string" && delta.length > 0) {
             send({ delta });

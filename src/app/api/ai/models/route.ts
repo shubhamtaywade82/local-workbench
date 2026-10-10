@@ -6,22 +6,18 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/ai/models
  *
- * Returns the list of models we expose to the workbench. We hard-code the
- * list because the `z-ai-web-dev-sdk` (v0.0.18) does not ship a `listModels`
- * helper; the models below are all served by the Z.ai GLM gateway and are
- * known to accept the OpenAI-style chat completions body.
+ * Returns the configured model using the OpenAI Chat Completions API format.
  */
 export async function GET() {
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const available = Boolean(process.env.OPENAI_API_KEY);
+
   return NextResponse.json({
     provider: {
-      id: "zai",
-      name: "Z.ai GLM",
-      available: true,
+      id: "openai-compatible",
+      name: "OpenAI-compatible API",
+      available,
     },
-    models: [
-      { id: "glm-4-plus", name: "GLM-4 Plus" },
-      { id: "glm-4-flash", name: "GLM-4 Flash" },
-      { id: "glm-4.5", name: "GLM-4.5" },
-    ],
+    models: [{ id: model, name: model }],
   });
 }

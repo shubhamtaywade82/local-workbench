@@ -15,23 +15,35 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Local Workbench — AI Document Editor",
-  description: "Browser-based, workspace-aware document editor with pluggable preview engine and AI assistant. Edit Markdown, JSON, YAML, TOML, XML, Mermaid and TOON with live previews, diagnostics, and AI actions.",
-  keywords: ["document editor", "workbench", "Monaco", "Markdown", "JSON", "YAML", "TOML", "Mermaid", "XML", "TOON", "AI assistant", "Next.js"],
+  description:
+    "Browser-based, workspace-aware document editor with pluggable preview engine and AI assistant. Edit Markdown, JSON, YAML, TOML, XML, Mermaid and TOON with live previews, diagnostics, and AI actions.",
+  keywords: [
+    "document editor",
+    "workbench",
+    "Monaco",
+    "Markdown",
+    "JSON",
+    "YAML",
+    "TOML",
+    "Mermaid",
+    "XML",
+    "TOON",
+    "AI assistant",
+    "Next.js",
+  ],
   authors: [{ name: "Local Workbench" }],
-  icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
-  },
   openGraph: {
     title: "Local Workbench — AI Document Editor",
-    description: "Browser-based, workspace-aware document editor with pluggable preview engine and AI assistant.",
-    url: "https://chat.z.ai",
-    siteName: "Z.ai",
+    description:
+      "Browser-based, workspace-aware document editor with pluggable preview engine and AI assistant.",
+    siteName: "Local Workbench",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
     title: "Local Workbench",
-    description: "Browser-based document editor with live previews and AI actions.",
+    description:
+      "Browser-based document editor with live previews and AI actions.",
   },
 };
 

@@ -53,11 +53,19 @@ export function AiAssistant() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data) {
-          setAiProvider({ id: data.provider.id, name: data.provider.name, available: data.provider.available });
+          setAiProvider({
+            id: data.provider.id,
+            name: data.provider.name,
+            available: data.provider.available,
+          });
         }
       })
       .catch(() => {
-        setAiProvider({ id: "zai", name: "Z.ai GLM", available: false });
+        setAiProvider({
+          id: "openai-compatible",
+          name: "OpenAI-compatible API",
+          available: false,
+        });
       });
   }, [setAiProvider]);
 
@@ -69,7 +77,9 @@ export function AiAssistant() {
   }, [messages]);
 
   const activeSession = activeTab ? sessions[activeTab] : null;
-  const adapter = activeSession ? documentRegistry.resolve(activeSession.path) : null;
+  const adapter = activeSession
+    ? documentRegistry.resolve(activeSession.path)
+    : null;
 
   async function sendChat() {
     if (!input.trim() || aiBusy) return;
@@ -138,7 +148,11 @@ export function AiAssistant() {
             const payload = line.slice(5).trim();
             if (payload === "[DONE]") continue;
             try {
-              const obj = JSON.parse(payload) as { delta?: string; error?: string; done?: boolean };
+              const obj = JSON.parse(payload) as {
+                delta?: string;
+                error?: string;
+                done?: boolean;
+              };
               if (obj.error) {
                 updateMessage(assistantId, {
                   content: acc + `\n\nError: ${obj.error}`,
@@ -185,7 +199,9 @@ export function AiAssistant() {
     if (abortRef.current) abortRef.current.abort();
   }
 
-  async function runAction(kind: "explain" | "fix" | "convert" | "generate-diagram" | "improve-docs") {
+  async function runAction(
+    kind: "explain" | "fix" | "convert" | "generate-diagram" | "improve-docs",
+  ) {
     if (!activeSession || !adapter) {
       appendMessage({
         id: uuid(),
@@ -214,9 +230,15 @@ export function AiAssistant() {
     try {
       if (kind === "convert") {
         // Ask the user for the target format via a prompt.
-        const target = window.prompt("Convert to format (json, yaml, toml, xml, toon, markdown):", "json");
+        const target = window.prompt(
+          "Convert to format (json, yaml, toml, xml, toon, markdown):",
+          "json",
+        );
         if (!target) {
-          updateMessage(assistantId, { content: "Cancelled", streaming: false });
+          updateMessage(assistantId, {
+            content: "Cancelled",
+            streaming: false,
+          });
           setAiBusy(false);
           return;
         }
@@ -242,14 +264,22 @@ export function AiAssistant() {
           },
         });
       } else if (kind === "generate-diagram") {
-        const description = window.prompt("Describe the diagram you want:", "A user opens a workspace, edits a file, and previews it.");
+        const description = window.prompt(
+          "Describe the diagram you want:",
+          "A user opens a workspace, edits a file, and previews it.",
+        );
         if (!description) {
-          updateMessage(assistantId, { content: "Cancelled", streaming: false });
+          updateMessage(assistantId, {
+            content: "Cancelled",
+            streaming: false,
+          });
           setAiBusy(false);
           return;
         }
-        const type = window.prompt("Diagram type (flowchart, sequence, state, er, class):", "flowchart") as
-          | "flowchart" | "sequence" | "state" | "er" | "class";
+        const type = window.prompt(
+          "Diagram type (flowchart, sequence, state, er, class):",
+          "flowchart",
+        ) as "flowchart" | "sequence" | "state" | "er" | "class";
         const res = await fetch("/api/ai/generate-diagram", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -262,7 +292,8 @@ export function AiAssistant() {
           streaming: false,
           proposedEdit: {
             label: "Apply Mermaid source",
-            description: "Replace the active document with the generated diagram.",
+            description:
+              "Replace the active document with the generated diagram.",
             newText: json.mermaid,
             path: activeSession.path,
           },
@@ -288,7 +319,8 @@ export function AiAssistant() {
           streaming: false,
         });
       } else if (kind === "fix") {
-        const diagnostics = useWorkbench.getState().diagnostics[activeSession.path] ?? [];
+        const diagnostics =
+          useWorkbench.getState().diagnostics[activeSession.path] ?? [];
         const res = await fetch("/api/ai/fix", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -331,7 +363,8 @@ export function AiAssistant() {
           streaming: false,
           proposedEdit: {
             label: "Apply improved docs",
-            description: "Replace the active document with the rewritten Markdown.",
+            description:
+              "Replace the active document with the rewritten Markdown.",
             newText: json.improved,
             path: activeSession.path,
             diff: json.diff,
@@ -372,30 +405,72 @@ export function AiAssistant() {
           <Sparkles className="h-3.5 w-3.5" />
           <span className="font-semibold">AI Assistant</span>
           {aiProvider && (
-            <span className={cn("rounded px-1.5 py-0.5 text-[10px]", aiProvider.available ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground")}>
+            <span
+              className={cn(
+                "rounded px-1.5 py-0.5 text-[10px]",
+                aiProvider.available
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
               {aiProvider.available ? "connected" : "offline"}
             </span>
           )}
         </div>
-        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={clearMessages} title="Clear">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={clearMessages}
+          title="Clear"
+        >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
 
       {/* Action chips */}
       <div className="flex flex-wrap gap-1 border-b px-2 py-2">
-        <ActionButton icon={<FileSearch className="h-3 w-3" />} label="Explain" onClick={() => runAction("explain")} disabled={aiBusy || !activeSession} />
-        <ActionButton icon={<Wrench className="h-3 w-3" />} label="Fix" onClick={() => runAction("fix")} disabled={aiBusy || !activeSession} />
-        <ActionButton icon={<RefreshCw className="h-3 w-3" />} label="Convert" onClick={() => runAction("convert")} disabled={aiBusy || !activeSession} />
-        <ActionButton icon={<ImageIcon className="h-3 w-3" />} label="Diagram" onClick={() => runAction("generate-diagram")} disabled={aiBusy || !activeSession} />
-        <ActionButton icon={<ListTree className="h-3 w-3" />} label="Improve" onClick={() => runAction("improve-docs")} disabled={aiBusy || !activeSession} />
+        <ActionButton
+          icon={<FileSearch className="h-3 w-3" />}
+          label="Explain"
+          onClick={() => runAction("explain")}
+          disabled={aiBusy || !activeSession}
+        />
+        <ActionButton
+          icon={<Wrench className="h-3 w-3" />}
+          label="Fix"
+          onClick={() => runAction("fix")}
+          disabled={aiBusy || !activeSession}
+        />
+        <ActionButton
+          icon={<RefreshCw className="h-3 w-3" />}
+          label="Convert"
+          onClick={() => runAction("convert")}
+          disabled={aiBusy || !activeSession}
+        />
+        <ActionButton
+          icon={<ImageIcon className="h-3 w-3" />}
+          label="Diagram"
+          onClick={() => runAction("generate-diagram")}
+          disabled={aiBusy || !activeSession}
+        />
+        <ActionButton
+          icon={<ListTree className="h-3 w-3" />}
+          label="Improve"
+          onClick={() => runAction("improve-docs")}
+          disabled={aiBusy || !activeSession}
+        />
       </div>
 
       {/* Context info */}
       <div className="border-b px-3 py-1.5 text-[10px] text-muted-foreground">
         {activeSession && adapter ? (
           <span>
-            Context: <span className="font-mono text-foreground">{activeSession.path}</span> · {adapter.displayName}
+            Context:{" "}
+            <span className="font-mono text-foreground">
+              {activeSession.path}
+            </span>{" "}
+            · {adapter.displayName}
           </span>
         ) : (
           <span>No active document for context.</span>
@@ -403,16 +478,19 @@ export function AiAssistant() {
       </div>
 
       {/* Messages */}
-      <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto"
-      >
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-3 p-3">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-xs text-muted-foreground">
               <Bot className="h-6 w-6 opacity-50" />
-              <div>Ask anything about your document, or run a structured action above.</div>
-              <div>AI changes are returned as proposed edits — you always review before they are applied.</div>
+              <div>
+                Ask anything about your document, or run a structured action
+                above.
+              </div>
+              <div>
+                AI changes are returned as proposed edits — you always review
+                before they are applied.
+              </div>
             </div>
           )}
           {messages.map((m) => (
@@ -442,12 +520,22 @@ export function AiAssistant() {
             }}
           />
           {aiBusy ? (
-            <Button size="sm" variant="secondary" onClick={cancel} className="gap-1">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={cancel}
+              className="gap-1"
+            >
               <X className="h-3.5 w-3.5" />
               Cancel
             </Button>
           ) : (
-            <Button size="sm" onClick={sendChat} disabled={!input.trim()} className="gap-1">
+            <Button
+              size="sm"
+              onClick={sendChat}
+              disabled={!input.trim()}
+              className="gap-1"
+            >
               <Send className="h-3.5 w-3.5" />
               Send
             </Button>
@@ -506,19 +594,23 @@ function MessageBubble({
             ? "bg-primary text-primary-foreground"
             : isSystem
               ? "bg-muted text-muted-foreground italic"
-              : "bg-muted/60"
+              : "bg-muted/60",
         )}
       >
         {!isUser && (
           <div className="mb-1 flex items-center gap-1 text-[10px] text-muted-foreground">
-            {isUser ? <User className="h-2.5 w-2.5" /> : isSystem ? null : <Bot className="h-2.5 w-2.5" />}
+            {isUser ? (
+              <User className="h-2.5 w-2.5" />
+            ) : isSystem ? null : (
+              <Bot className="h-2.5 w-2.5" />
+            )}
             <span>{isUser ? "You" : isSystem ? "System" : "Assistant"}</span>
-            {message.streaming && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+            {message.streaming && (
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            )}
           </div>
         )}
-        <div className="whitespace-pre-wrap break-words">
-          {message.content}
-        </div>
+        <div className="whitespace-pre-wrap break-words">{message.content}</div>
         {message.proposedEdit && (
           <div className="mt-2 rounded border bg-background/60 p-2">
             <div className="flex items-center gap-1 text-[10px] font-medium">
@@ -536,11 +628,21 @@ function MessageBubble({
               </pre>
             )}
             <div className="mt-2 flex gap-1">
-              <Button size="sm" variant="default" className="h-6 gap-1 text-[10px]" onClick={onApply}>
+              <Button
+                size="sm"
+                variant="default"
+                className="h-6 gap-1 text-[10px]"
+                onClick={onApply}
+              >
                 <Check className="h-3 w-3" />
                 Apply
               </Button>
-              <Button size="sm" variant="outline" className="h-6 gap-1 text-[10px]" onClick={onDiscard}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 gap-1 text-[10px]"
+                onClick={onDiscard}
+              >
                 <X className="h-3 w-3" />
                 Discard
               </Button>

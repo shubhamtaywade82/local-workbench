@@ -10,6 +10,7 @@ Agent: orchestrator (main)
 Task: Bootstrap plan and worklog.
 
 Work Log:
+
 - Read complete requirement file (673 lines).
 - Inspected existing Next.js 16 + Tailwind 4 + shadcn/ui project.
 - Decided architecture:
@@ -18,34 +19,33 @@ Work Log:
   - Document adapter core in `src/documents/core`, adapters in `src/documents/adapters/*`.
   - File system platform in `src/platform/filesystem` (FSA + in-memory sample fallback).
   - Persistence in `src/platform/persistence` (IndexedDB).
-  - AI backend in `src/app/api/ai/*` using `z-ai-web-dev-sdk`.
+  - AI backend in `src/app/api/ai/*` using the official OpenAI SDK.
   - Monaco editor loaded dynamically with `ssr:false`.
 - Identified parallelisable subagent tasks: 3-a (data adapters), 3-b (diagram/xml/toon adapters), 3-c (AI API routes).
 
 Stage Summary:
+
 - Plan locked in. Dependencies to install next: `@monaco-editor/react`, `monaco-editor`, `yaml`, `smol-toml`, `jsonc-parser`, `json5`, `fast-xml-parser`, `mermaid`, `idb`, `diff`.
 
 ---
 Task ID: 3-c
 Agent: general-purpose (AI backend)
-Task: Build AI backend API routes using z-ai-web-dev-sdk.
+Task: Build AI backend API routes using the OpenAI SDK.
 
 Work Log:
+
 - Read worklog (Task 0 plan locked in; AI backend lives under `src/app/api/ai/*`).
-- Inspected `/home/z/my-project/node_modules/z-ai-web-dev-sdk/dist/index.d.ts` and `index.js` to verify the real SDK shape (the task prompt's `zai.completions.create(...)` was slightly off — the actual API is `zai.chat.completions.create(...)`).
-  - `default export` is the `ZAI` class; `ZAI.create(): Promise<ZAI>` reads `.z-ai-config` from `process.cwd()`, `$HOME`, or `/etc/`.
-  - `chat.completions.create({ model, messages, stream? })` returns the upstream JSON for `stream:false` (OpenAI shape: `{choices:[{message:{content}}]}`) and returns the raw `ReadableStream<Uint8Array>` upstream SSE for `stream:true` (the SDK does NOT parse SSE for the caller).
-  - Upstream SSE chunks follow the OpenAI streaming shape (`chunk.choices[0].delta.content`) and end with `data: [DONE]`.
+- The routes use the official OpenAI SDK with the standard Chat Completions API. Credentials and optional compatible-provider URL/model use `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`.
 - Inspected project layout: `src/app/api/` existed with a single `route.ts`; `src/documents/adapters/` exists with empty `toon/` dir (parallel task 3-b hasn't shipped the TOON adapter yet).
 - Confirmed parser packages' APIs: `jsonc-parser` has `parse` (no stringify — JSON.stringify is a valid JSONC output), `json5` has `parse`+`stringify`, `yaml` has `parse`+`stringify`, `smol-toml` has `parse`+`stringify`, `diff` exposes `createPatch(fileName, oldStr, newStr, oldHeader, newHeader, options)`.
 - Created shared server lib `src/lib/ai/server.ts`:
-  - Module-level `zaiPromise = ZAI.create()` (one init per server process; rejects cleanly with a logged error if `.z-ai-config` is missing).
+  - A shared, lazily initialized OpenAI client reads credentials from server-side environment variables.
   - `parseSseStream(stream)` async generator that decodes the raw upstream `ReadableStream<Uint8Array>`, splits SSE `data:` lines, JSON-parses each, stops at `[DONE]`, and skips malformed frames.
   - `stripCodeFence(text)` removes a single outer ``` fence (preserves nested fences).
   - `extractJson<T>(text)` tries direct parse, then a fenced ```json block, then a brace-balanced substring — used by `explain` and `fix` for robust JSON extraction.
   - `errorMessage(err)` helper for clean error JSON.
-- Created `src/app/api/ai/models/route.ts` — `GET` returning `{provider:{id:"zai",name:"Z.ai GLM",available:true}, models:[{id:"glm-4-plus",...},{id:"glm-4-flash",...},{id:"glm-4.5",...}]}`.
-- Created `src/app/api/ai/chat/route.ts` — `POST` streaming SSE. Builds a system prompt framing the assistant as the Workbench AI assistant, format-aware when `context.adapterId` is set, selection-aware when `context.selection` is set. Calls `zai.chat.completions.create({model, messages, stream:true})`, runs the raw upstream through `parseSseStream`, re-emits each delta as `data: {"delta":"..."}\n\n`, sends `data: {"delta":"","done":true}\n\n` before the sentinel, and on error emits `data: {"error":"..."}\n\n` then `data: [DONE]\n\n`. Returns a raw `Response` with `Content-Type: text/event-stream`.
+- Created `src/app/api/ai/models/route.ts` — `GET` returning the configured OpenAI-compatible provider and model.
+- Created `src/app/api/ai/chat/route.ts` — `POST` streaming SSE. Builds a context-aware system prompt, consumes the SDK async stream, and re-emits each delta in the workbench's SSE response format.
 - Created `src/app/api/ai/explain/route.ts` — `POST` non-streaming. JSON-instructed system prompt. Parses the model output with `extractJson`; if shape mismatches, falls back to `{explanation: stripCodeFence(raw), ambiguity: []}`.
 - Created `src/app/api/ai/fix/route.ts` — `POST`. Diagnostics summarised into the system prompt. Expects `{label, description, newText, diff?}` (full corrected document, not a patch). Falls back to `{label:"Apply AI suggestion", description:"The model did not return structured JSON.", newText: raw}` when JSON extraction fails.
 - Created `src/app/api/ai/convert/route.ts` — `POST`. Tries deterministic in-process conversion first for the data formats `{json, jsonc, json5, yaml, toml, toon}` using the appropriate parser/stringifier pair; on any failure (or when `xml`/`markdown` is involved) falls back to the LLM. The TOON adapter is loaded via `import(<variable-spec>)` so TypeScript does not statically resolve the path (the module doesn't exist yet — task 3-b ships it); import failures are caught and surfaced as a clean error so the route still works for the other formats.
@@ -55,6 +55,7 @@ Work Log:
 - Ran `bunx tsc --noEmit` against the whole project — only pre-existing errors remain in `examples/*` and `skills/*`. My 8 files produce zero TypeScript errors.
 
 Stage Summary:
+
 - Files created:
   - `src/lib/ai/server.ts` (shared SDK singleton + SSE parser + JSON/fence helpers)
   - `src/app/api/ai/models/route.ts`
@@ -65,7 +66,7 @@ Stage Summary:
   - `src/app/api/ai/generate-diagram/route.ts`
   - `src/app/api/ai/improve-docs/route.ts`
 - Routes added:
-  - `GET  /api/ai/models` — list available GLM models
+  - `GET  /api/ai/models` — expose the configured model
   - `POST /api/ai/chat` — streaming SSE chat with workbench-aware system prompt
   - `POST /api/ai/explain` — explain a document + flag ambiguity (JSON)
   - `POST /api/ai/fix` — propose a full corrected document for diagnostics
@@ -74,16 +75,16 @@ Stage Summary:
   - `POST /api/ai/improve-docs` — rewrite Markdown + unified diff
 - Lint status: pass (zero errors across all 8 created files; the 2 remaining project lint errors are in `src/features/workbench/hooks.ts` and are owned by another agent).
 - TypeScript: pass (zero errors across all 8 created files).
-- SDK invocation shape: `const zai = await ZAI.create(); await zai.chat.completions.create({ model: "glm-4-plus", messages: [...], stream: true | false })`. Non-streaming returns OpenAI JSON (`{choices:[{message:{content}}]}`). Streaming returns the raw upstream `ReadableStream<Uint8Array>` SSE — the caller parses `data: {...}\n\n` lines and stops at `data: [DONE]`; per-chunk delta lives at `chunk.choices[0].delta.content`.
+- SDK invocation uses `openai.chat.completions.create({ model, messages, stream })`; non-streaming responses and streaming deltas follow the standard OpenAI SDK types.
 - Key decisions:
-  - Shared `src/lib/ai/server.ts` so each route reuses the same `ZAI.create()` promise (one init per process) and the same SSE/JSON/fence helpers — keeps route files thin and consistent.
-  - All routes declare `export const runtime = "nodejs"` and `export const dynamic = "force-dynamic"` (the SDK uses `fs`/`os` to read `.z-ai-config` and so cannot run on the Edge runtime).
+  - Shared `src/lib/ai/server.ts` so each route reuses one OpenAI client and the same JSON/fence helpers — keeps route files thin and consistent.
+  - All routes declare `export const runtime = "nodejs"` and `export const dynamic = "force-dynamic"`.
   - All SDK calls wrapped in try/catch returning `{ error: "..." }` JSON with status 500; the streaming chat route additionally emits an SSE error event before the `[DONE]` sentinel so the client always sees a clean stream end.
   - `convert` route prefers a deterministic local round-trip (parse → object → stringify) for pure data formats and only invokes the LLM when the deterministic path is unavailable or fails — saves tokens and gives reproducible output for `json↔yaml↔toml↔json5↔jsonc↔toon`.
   - The TOON adapter import uses a non-literal module specifier held in a `string`-typed variable so TypeScript doesn't statically resolve the path — the route compiles today even though task 3-b hasn't shipped the file yet, and will pick it up automatically once it lands.
   - All routes use `NextRequest`/`NextResponse` from `next/server`; the chat streaming route returns a raw `Response` with a `ReadableStream` body because that's the natural shape for SSE.
   - No `console.log` in production paths; `console.error` is used only for genuine failures (SDK init, deterministic-conversion failures, diff failures, TOON dynamic-import failures).
-- Note for downstream agents: the `.z-ai-config` file is NOT checked into the project — the sandbox injects at boot. If `ZAI.create()` rejects at runtime, every route will return a 500 `{ error: "Configuration file not found or invalid..." }` until the config is present. This is expected and intentional.
+- AI requests return a clear configuration error when `OPENAI_API_KEY` is absent; the models endpoint reports the assistant as unavailable in that case.
 
 ---
 Task ID: 3-b
@@ -91,6 +92,7 @@ Agent: general-purpose (diagram/xml/toon adapters)
 Task: Implement Mermaid, XML, TOON document adapters.
 
 Work Log:
+
 - Read worklog (Task 0 plan; Task 3-c AI backend already in place, including a dynamic-import slot for the TOON adapter at `src/app/api/ai/convert/route.ts`).
 - Read `src/documents/core/types.ts` to lock in the `DocumentAdapter`, `ParseResult`, `PreviewModel`, `Diagnostic`, `TextEdit` contracts.
 - Read `src/documents/core/registry.ts` to confirm the `documentRegistry.register(adapter)` shape and the per-extension "first-registered wins" rule; the `register()` export contract used by the orchestrator.
@@ -129,6 +131,7 @@ Work Log:
 - Ran `tsc --noEmit` against the whole project — zero errors in any adapter file.
 
 Stage Summary:
+
 - Files created:
   - `src/documents/adapters/mermaid/mermaid.ts`
   - `src/documents/adapters/mermaid/index.ts`
@@ -155,6 +158,7 @@ Agent: general-purpose (data adapters)
 Task: Implement Markdown, JSON family, YAML, TOML document adapters.
 
 Work Log:
+
 - Read worklog (Task 0 plan + Task 3-c AI routes already shipped; data adapters live under `src/documents/adapters/*` and register with the singleton `documentRegistry` from `src/documents/core/registry.ts`).
 - Re-read `src/documents/core/types.ts` (full `DocumentAdapter`, `ParseResult`, `PreviewModel`, `Diagnostic`, `TextEdit`, `CompletionContext`/`CompletionItem` contracts — all 1-based line/column) and `registry.ts` (extension-keyed map; first registration wins per extension; `TextFallbackAdapter` handles unknown paths).
 - Inspected package APIs at `node_modules/*/package.json` and `*.d.ts`:
@@ -201,6 +205,7 @@ Work Log:
 - Ran `bunx tsc --noEmit` against the whole project — only pre-existing errors remain (in `examples/*`, `skills/*`, and the 3-c route's dynamic `@/documents/adapters/toon/toon` import path — the 3-b subagent's file). My 5 adapter files produce zero TypeScript errors.
 
 Stage Summary:
+
 - Files created:
   - `src/documents/adapters/markdown/markdown.ts` (Markdown adapter: MD018/MD009 lint + EOL normaliser formatter)
   - `src/documents/adapters/json/json.ts` (JSON family adapter: json, jsonc, json5, jsonl, ndjson + offsetToRange helper)
@@ -226,6 +231,7 @@ Agent: orchestrator (main)
 Task: Build out the UI shell, all panel components, sample workspace, persistence, wire everything in src/app/page.tsx, and verify end-to-end with Agent Browser.
 
 Work Log:
+
 - Created sample workspace (src/platform/filesystem/sample-workspace.ts) with 10 files covering every supported format.
 - Implemented WorkspaceFileSystem contract + InMemoryWorkspace (always-available fallback) + FileSystemAccessWorkspace (real FSA API when browser supports it) + pickDirectory helper + isFileSystemAccessSupported feature detector.
 - Built IndexedDB persistence (recent-workspaces, recovery-drafts, settings) via idb.
@@ -257,6 +263,7 @@ Work Log:
 - Exposed workspace controller via window.__workbenchController for the command palette.
 
 Bugs caught and fixed during Agent Browser verification:
+
 1. Monaco "Cannot add model because it already exists" — was calling createModel manually in onMount while @monaco-editor/react also creates one via the `path` prop. Removed manual createModel; let @monaco-editor/react own models.
 2. react-markdown v10 hydration error "<pre> cannot be a descendant of <p>" — was rendering my own <pre><code> inside the `code` component, but react-markdown v10 already wraps block code in <pre>. Fixed by pre-splitting mermaid segments and not customising the `code` component.
 3. Zustand infinite re-render warning "getSnapshot should be cached" — selector functions were returning fresh arrays on every state read (Object.values(...).flat()). Fixed by reading the stable map ref and memoising the derived array.
@@ -265,6 +272,7 @@ Bugs caught and fixed during Agent Browser verification:
 6. XML adapter only handled `.xml`; added `.xsd` (and `.svg`, `.xsl`, `.rss`, `.atom`) so the sample config.xsd opens in the XML tree preview.
 
 Stage Summary:
+
 - Files created in this stage (in addition to subagent-produced adapters & AI routes):
   - src/app/page.tsx (rewritten to load WorkbenchShell dynamically with ssr:false inside ErrorBoundary)
   - src/app/layout.tsx (metadata updated)
@@ -324,6 +332,7 @@ Agent: orchestrator (main)
 Task: Add visible UI to switch workspace/project/directory (was missing — only command palette had the actions).
 
 Work Log:
+
 - Added `closeAllTabs` action to the workbench store so switching workspaces doesn't leave stale tabs from the previous workspace.
 - Added `confirmSwitchWorkspace()` helper to the workspace controller — prompts before switching when there are unsaved changes (recovery drafts are still preserved in IndexedDB).
 - Updated `openSampleWorkspace` and `openLocalDirectory` to call `closeAllTabs` and `confirmSwitchWorkspace` before opening the new workspace.
@@ -339,6 +348,7 @@ Work Log:
   - Replaced the static workspace name + source span with `<WorkspaceSwitcher variant="compact" />`.
 
 Stage Summary:
+
 - Files added: src/features/workbench/shell/workspace-switcher.tsx
 - Files modified:
   - src/features/workbench/store.ts (added closeAllTabs action + interface decl)

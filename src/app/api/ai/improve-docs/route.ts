@@ -3,7 +3,7 @@ import { createPatch } from "diff";
 import {
   DEFAULT_MODEL,
   errorMessage,
-  getZai,
+  getOpenAI,
   stripCodeFence,
 } from "@/lib/ai/server";
 
@@ -76,8 +76,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   ].join("\n");
 
   try {
-    const zai = await getZai();
-    const result = await zai.chat.completions.create({
+    const openai = getOpenAI();
+    const result = await openai.chat.completions.create({
       model: DEFAULT_MODEL,
       stream: false,
       messages: [
