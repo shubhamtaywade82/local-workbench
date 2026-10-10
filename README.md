@@ -112,6 +112,32 @@ With `AI_GENERATIVE_UI=1`, chat and **Explain** answers may include interactive 
 - **Not used:** OpenUI Gateway and Autofix (paid Thesys cloud, would send prompts off-box) and `@openuidev/react-ui` (requires zustand 4; this app uses zustand 5).
 - **Telemetry:** `@openuidev/lang-core` sends pseudonymous install telemetry from its `postinstall` script unless `OPENUI_TELEMETRY_DISABLED=1` (or `DO_NOT_TRACK=1`) is set. Runtime telemetry is opt-in and stays off.
 
+## Server Workspace (WSL, Docker, remote dev boxes)
+
+The browser's folder picker can only open folders the browser can reach directly, which makes folders inside WSL slow and awkward. A **server workspace** instead edits files on the machine running the Next.js server. Run the workbench *inside* WSL and open WSL folders from your Windows browser:
+
+```bash
+# inside WSL
+export WORKSPACE_ROOTS=/home/you/projects,/home/you/notes
+bun run dev            # then open http://localhost:3000 in your Windows browser
+```
+
+The roots appear under **Server folders** in the workspace switcher and reopen from **Recent** without a picker or permission prompt. Files are read and written natively in WSL; saves are atomic (temp file + rename).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `WORKSPACE_ROOTS` | unset (feature off) | Comma-separated absolute directories. Only files inside these are reachable. |
+| `WORKSPACE_MAX_FILE_BYTES` | `5242880` | Largest file that can be opened or saved. |
+| `WORKSPACE_ALLOWED_HOSTS` | — | Extra `Host` names to accept (by default only `localhost`, `127.0.0.1`, `[::1]`). |
+
+**Security model** (`src/lib/server-fs/`): this gives a web page read/write access to your disk, so the API is locked down.
+- Off unless `WORKSPACE_ROOTS` is set: the `/api/fs` routes return 404.
+- Every client path is validated in one place. Absolute paths, `..`, NUL bytes and symlinks resolving outside a root are rejected. Symlinks pointing outside are also hidden from listings.
+- Requests must come from this app on this machine. The `Host` allowlist blocks DNS rebinding, `Origin` must match, and a custom `X-Workbench-FS` header plus a JSON body force a CORS preflight, which the server never grants. Cross-site fetch metadata is rejected.
+- Text files only (binary files are refused). Size limits apply to both reads and request bodies. Deleting a symlink removes the link, never its target. Real paths are never sent to the browser.
+
+Not watched: changes made outside the workbench appear after reopening the folder (or refreshing the explorer).
+
 ## Project Structure
 
 ```

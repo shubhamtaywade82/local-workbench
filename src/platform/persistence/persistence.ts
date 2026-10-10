@@ -28,6 +28,8 @@ export interface RecentWorkspace {
   /** IndexedDB cannot store FileSystemHandle objects across sessions in all
    *  browsers — we keep the name only. The user must re-pick the folder. */
   handleName?: string;
+  /** For server workspaces: the root id, so the entry reopens without a picker. */
+  serverRootId?: string;
 }
 
 export interface RecoveryDraft {
