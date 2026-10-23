@@ -59,6 +59,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb xauth libgtk-3-0t64 libnss3 libxss1 libasound2t64 libsecret-1-0 libnotify4 xdg-utils
+      - name: Fetch Electron's binary
+        # Electron has no install script of its own; it downloads the binary the first
+        # time it is required. bun does not run it on a fresh install either, so fetch it here.
+        run: node node_modules/electron/install.js
       - name: Allow Electron's sandbox (Ubuntu restricts unprivileged user namespaces)
         run: |
           sudo chown root node_modules/electron/dist/chrome-sandbox
