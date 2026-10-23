@@ -11,6 +11,8 @@ import { memo, Fragment, type ReactNode } from "react";
 
 interface Props {
   source: string;
+  /** Drops the outer padding and block spacing, for rendering one block inside another view. */
+  bare?: boolean;
 }
 
 interface Segment {
@@ -40,10 +42,15 @@ function splitMermaidSegments(source: string): Segment[] {
   return segments.length === 0 ? [{ kind: "markdown", text: source }] : segments;
 }
 
-function MarkdownRendererBase({ source }: Props) {
+function markdownClass(bare: boolean): string {
+  const spacing = bare ? "" : "space-y-4 p-4 ";
+  return `prose prose-sm dark:prose-invert max-w-none ${spacing}prose-headings:scroll-mt-16 prose-pre:rounded-md prose-pre:bg-muted/50 prose-pre:p-3 prose-pre:text-xs prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-code:text-foreground`;
+}
+
+function MarkdownRendererBase({ source, bare = false }: Props) {
   const segments = splitMermaidSegments(source);
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none space-y-4 p-4 prose-headings:scroll-mt-16 prose-pre:rounded-md prose-pre:bg-muted/50 prose-pre:p-3 prose-pre:text-xs prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-code:text-foreground">
+    <div className={markdownClass(bare)}>
       {segments.map((seg, i) =>
         seg.kind === "mermaid" ? (
           <MermaidRenderer key={`mmd-${i}`} source={seg.text} />

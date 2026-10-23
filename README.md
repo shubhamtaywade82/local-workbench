@@ -6,6 +6,7 @@ A powerful, local-first document editor with AI assistance, built with Next.js 1
 
 - **Multi-format Support**: Markdown, JSON, YAML, TOML, XML, Mermaid, TOON, and plain text
 - **Live Preview**: Real-time rendered preview for all supported formats
+- **Live view**: A Code/Live toggle in the tab bar. In Live, a Markdown document is rendered block by block: click a block to edit its source with a side-by-side preview, and use **Suggest** for an AI rewrite of that block, which you accept or discard as a diff. Other formats show the read-only preview.
 - **File Explorer**: Tree view with lazy loading, workspace switching, and recent workspaces
 - **Editor Tabs**: Monaco-based editor with dirty indicators and keyboard shortcuts
 - **AI Assistant**: Chat + 5 structured actions (Explain, Fix, Convert, Diagram, Improve)

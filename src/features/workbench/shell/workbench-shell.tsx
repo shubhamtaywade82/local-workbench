@@ -13,6 +13,7 @@ import {
 import { FileExplorer } from "@/features/workbench/file-explorer/file-explorer";
 import { EditorTabs } from "@/features/workbench/tabs/editor-tabs";
 import { EditorPane } from "@/features/workbench/editor/editor-pane";
+import { LiveEditor } from "@/features/workbench/live/live-editor";
 import { PreviewPane } from "@/features/workbench/preview/preview-pane";
 import { DiagnosticsPanel } from "@/features/workbench/diagnostics/diagnostics-panel";
 import { AiAssistant } from "@/features/workbench/ai-assistant/ai-assistant";
@@ -33,6 +34,8 @@ import { cn } from "@/lib/utils";
 export function WorkbenchShell() {
   const explorerVisible = useWorkbench((s) => s.explorerVisible);
   const previewVisible = useWorkbench((s) => s.previewVisible);
+  const editorViewMode = useWorkbench((s) => s.editorViewMode);
+  const setEditorViewMode = useWorkbench((s) => s.setEditorViewMode);
   const aiVisible = useWorkbench((s) => s.aiVisible);
   const diagnosticsVisible = useWorkbench((s) => s.diagnosticsVisible);
   const workspace = useWorkbench((s) => s.workspace);
@@ -68,7 +71,8 @@ export function WorkbenchShell() {
 
     (async () => {
       await ensureAdaptersRegistered();
-      const settings = await loadSettings();
+      // A failed read must not stop boot: the layout only mounts once `booted` is set.
+      const settings = await loadSettings().catch(() => null);
       // Set by the desktop launcher when the window was opened on a folder.
       const launch = (await getDesktopBridge()?.getLaunchTarget()) ?? null;
       if (cancelled) return;
@@ -78,9 +82,10 @@ export function WorkbenchShell() {
         setPreviewVisible(settings.previewVisible);
         setAiVisible(settings.aiVisible);
         setDiagnosticsVisible(settings.diagnosticsVisible);
+        setEditorViewMode(settings.editorViewMode ?? "code");
       }
       // Check if first visit: no settings AND no recent workspaces
-      const recent = await listRecentWorkspaces();
+      const recent = await listRecentWorkspaces().catch(() => []);
       const isFirstVisit = !settings && recent.length === 0;
       if (!cancelled) {
         setShowWelcome(isFirstVisit && !launch);
@@ -107,10 +112,11 @@ export function WorkbenchShell() {
       theme,
       explorerVisible,
       previewVisible,
+      editorViewMode,
       aiVisible,
       diagnosticsVisible,
     });
-  }, [theme, explorerVisible, previewVisible, aiVisible, diagnosticsVisible, booted]);
+  }, [theme, explorerVisible, previewVisible, editorViewMode, aiVisible, diagnosticsVisible, booted]);
 
   // Expose the controller via window so the command palette (which can't
   // re-instantiate the hook) can access the active fs.
@@ -211,6 +217,9 @@ export function WorkbenchShell() {
     <ThemeProvider>
       <div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
         <main className="relative flex min-h-0 flex-1 overflow-hidden">
+          {/* Mounted only after saved settings are applied, so the panels do not
+              change while the group is still restoring its layout. */}
+          {booted && (
           <ResizablePanelGroup
             direction="horizontal"
             className="h-full w-full"
@@ -232,7 +241,7 @@ export function WorkbenchShell() {
             <ResizablePanel defaultSize={52} minSize={20}>
               <EditorArea />
             </ResizablePanel>
-            {previewVisible && (
+            {previewVisible && editorViewMode !== "live" && (
               <>
                 <ResizableHandle />
                 <ResizablePanel defaultSize={30} minSize={15} maxSize={55}>
@@ -241,6 +250,7 @@ export function WorkbenchShell() {
               </>
             )}
           </ResizablePanelGroup>
+          )}
 
           {aiVisible && (
             <aside className="hidden h-full w-[360px] shrink-0 border-l bg-card lg:block">
@@ -270,11 +280,16 @@ export function WorkbenchShell() {
 }
 
 function EditorArea() {
+  const editorViewMode = useWorkbench((s) => s.editorViewMode);
   return (
     <div className="flex h-full min-w-0 flex-col">
       <EditorTabs />
       <div className={cn("min-h-0 flex-1")}>
-        <EditorPane />
+        {/* Monaco stays mounted while the live view is shown, so its undo history survives a switch. */}
+        <div className={cn("h-full", editorViewMode === "live" && "hidden")}>
+          <EditorPane />
+        </div>
+        {editorViewMode === "live" && <LiveEditor />}
       </div>
     </div>
   );

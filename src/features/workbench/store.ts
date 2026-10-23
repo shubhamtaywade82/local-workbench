@@ -9,6 +9,9 @@ import type { Diagnostic } from "@/documents/core/types";
 import { createSession, type DocumentSession } from "@/documents/core/session";
 import type { Workspace, WorkspaceFileEntry } from "@/documents/core/types";
 
+/** Editor area view: the Monaco source editor, or the combined live view. */
+export type EditorViewMode = "code" | "live";
+
 export interface OpenTab {
   path: string;
   name: string;
@@ -65,6 +68,9 @@ interface WorkbenchState {
   previewVisible: boolean;
   previewMode: "preview" | "source";
 
+  // --- Editor view --------------------------------------------------------
+  editorViewMode: EditorViewMode;
+
   // --- Diagnostics --------------------------------------------------------
   diagnostics: Record<string, Diagnostic[]>;
   diagnosticsVisible: boolean;
@@ -97,6 +103,8 @@ interface WorkbenchState {
   setPreviewVisible: (visible: boolean) => void;
   setPreviewMode: (mode: "preview" | "source") => void;
 
+  setEditorViewMode: (mode: EditorViewMode) => void;
+
   setDiagnostics: (path: string, diagnostics: Diagnostic[]) => void;
   clearDiagnostics: (path: string) => void;
   setDiagnosticsVisible: (visible: boolean) => void;
@@ -125,6 +133,7 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
 
   previewVisible: true,
   previewMode: "preview",
+  editorViewMode: "code",
 
   diagnostics: {},
   diagnosticsVisible: true,
@@ -241,6 +250,7 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
 
   setPreviewVisible: (previewVisible) => set({ previewVisible }),
   setPreviewMode: (previewMode) => set({ previewMode }),
+  setEditorViewMode: (editorViewMode) => set({ editorViewMode }),
 
   setDiagnostics: (path, diagnostics) =>
     set((state) => ({

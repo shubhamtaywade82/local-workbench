@@ -2,8 +2,8 @@
 
 "use client";
 
-import { X, Circle } from "lucide-react";
-import { useWorkbench } from "@/features/workbench/store";
+import { X, Circle, Code2, Eye } from "lucide-react";
+import { useWorkbench, type EditorViewMode } from "@/features/workbench/store";
 import { cn } from "@/lib/utils";
 import { fileIconColor } from "@/features/workbench/file-explorer/file-explorer";
 
@@ -23,7 +23,8 @@ export function EditorTabs() {
   }
 
   return (
-    <div className="flex h-9 items-stretch overflow-x-auto border-b bg-muted/30">
+    <div className="flex h-9 items-stretch border-b bg-muted/30">
+      <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
       {openTabs.map((tab) => {
         const session = sessions[tab.path];
         const isDirty = session?.isDirty ?? false;
@@ -59,6 +60,41 @@ export function EditorTabs() {
               )}
             </button>
           </div>
+        );
+      })}
+      </div>
+      <EditorViewToggle />
+    </div>
+  );
+}
+
+function EditorViewToggle() {
+  const mode = useWorkbench((s) => s.editorViewMode);
+  const setMode = useWorkbench((s) => s.setEditorViewMode);
+  const options: { value: EditorViewMode; label: string; title: string }[] = [
+    { value: "code", label: "Code", title: "Source editor" },
+    { value: "live", label: "Live", title: "Rendered view with inline editing and AI suggestions" },
+  ];
+  return (
+    <div role="group" aria-label="Editor view" className="flex shrink-0 items-center gap-0.5 border-l px-2">
+      {options.map((option) => {
+        const Icon = option.value === "code" ? Code2 : Eye;
+        const active = mode === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={active}
+            title={option.title}
+            onClick={() => setMode(option.value)}
+            className={cn(
+              "flex items-center gap-1 rounded px-2 py-0.5 text-[11px]",
+              active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-foreground/10",
+            )}
+          >
+            <Icon className="h-3 w-3" />
+            {option.label}
+          </button>
         );
       })}
     </div>

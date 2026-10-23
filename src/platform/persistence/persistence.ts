@@ -45,6 +45,8 @@ export interface WorkbenchSettings {
   theme: "dark" | "light";
   explorerVisible: boolean;
   previewVisible: boolean;
+  /** Optional: settings saved before the live view existed have no value. */
+  editorViewMode?: "code" | "live";
   aiVisible: boolean;
   diagnosticsVisible: boolean;
 }
