@@ -1,0 +1,129 @@
+# Desktop app: checks, the end-to-end acceptance test on Linux, and installers for
+# Linux, Windows and macOS. Installers are built on their own platform runners,
+# because electron-builder needs Wine for the Windows installer on Linux and
+# macOS builds require macOS.
+
+name: Desktop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: "1.4.2"
+  OPENUI_TELEMETRY_DISABLED: "1"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  checks:
+    name: Typecheck, lint, unit tests, production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Generate the Prisma client
+        run: bunx prisma generate
+      - name: Typecheck
+        run: bunx tsc --noEmit
+      - name: Lint
+        run: bun run lint
+      - name: Unit tests
+        run: bun run test
+      - name: Production build
+        run: bun run build
+
+  acceptance:
+    name: Desktop acceptance (Linux, Xvfb)
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Generate the Prisma client
+        run: bunx prisma generate
+      - name: Install Electron's runtime libraries and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth libgtk-3-0t64 libnss3 libxss1 libasound2t64 libsecret-1-0 libnotify4 xdg-utils
+      - name: Fetch Electron's binary
+        # Electron has no install script of its own; it downloads the binary the first
+        # time it is required. bun does not run it on a fresh install either, so fetch it here.
+        run: node node_modules/electron/install.js
+      - name: Allow Electron's sandbox (Ubuntu restricts unprivileged user namespaces)
+        run: |
+          sudo chown root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+      - name: Build the desktop bundle
+        run: bun run desktop:build
+      - name: Install the Playwright client (not saved to package.json)
+        run: bun add --no-save playwright-core
+      - name: Run the acceptance test under Xvfb
+        run: xvfb-run -a bun tests/desktop/acceptance.mjs
+
+  package-linux:
+    name: Package (Linux AppImage and deb)
+    needs: acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - name: Package
+        run: bun run desktop:package -- --linux AppImage deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-installers
+          path: release/dist/*.{AppImage,deb}
+
+  package-windows:
+    name: Package (Windows NSIS installer)
+    needs: checks
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - name: Package
+        run: bun run desktop:package -- --win nsis
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: release/dist/*.exe
+
+  package-macos:
+    name: Package (macOS dmg, unsigned)
+    needs: checks
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - name: Package
+        run: bun run desktop:package -- --mac dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: release/dist/*.dmg

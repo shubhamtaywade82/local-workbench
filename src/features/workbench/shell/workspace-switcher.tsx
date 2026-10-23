@@ -37,7 +37,7 @@ import {
   removeRecentWorkspace,
   type RecentWorkspace,
 } from "@/platform/persistence/persistence";
-import { isFileSystemAccessSupported } from "@/platform/filesystem/workspace-fs";
+import { canPickLocalFolder, isFileSystemAccessSupported } from "@/platform/filesystem/workspace-fs";
 import { listServerRoots, type ServerRootInfo } from "@/platform/filesystem/server-workspace";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +55,7 @@ export function WorkspaceSwitcher({ variant = "default", className }: Props) {
   const [serverRoots, setServerRoots] = useState<ServerRootInfo[] | null>(null);
   const [open, setOpen] = useState(false);
   const fsaSupported = isFileSystemAccessSupported();
+  const canPick = canPickLocalFolder();
 
   // Load recent workspaces when the menu opens.
   useEffect(() => {
@@ -170,9 +171,11 @@ export function WorkspaceSwitcher({ variant = "default", className }: Props) {
                     ? "Sample (in-memory)"
                     : workspace.source === "server"
                       ? "Server folder"
-                      : workspace.source}
+                      : workspace.source === "electron"
+                        ? "Desktop folder"
+                        : workspace.source}
               </div>
-              {!fsaSupported && (
+              {!canPick && (
                 <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
                   File System Access API unavailable — open-local-folder disabled.
                 </div>
@@ -183,7 +186,7 @@ export function WorkspaceSwitcher({ variant = "default", className }: Props) {
         )}
         <DropdownMenuItem
           onClick={handleOpenLocal}
-          disabled={!fsaSupported}
+          disabled={!canPick}
           className="gap-2 text-xs"
         >
           <FolderOpen className="h-3.5 w-3.5" />

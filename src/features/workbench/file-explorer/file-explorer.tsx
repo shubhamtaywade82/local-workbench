@@ -26,7 +26,8 @@ import { documentRegistry } from "@/documents/core/registry";
 import type { WorkspaceFileEntry } from "@/documents/core/types";
 import { cn } from "@/lib/utils";
 import { WorkspaceSwitcher } from "@/features/workbench/shell/workspace-switcher";
-import { isFileSystemAccessSupported } from "@/platform/filesystem/workspace-fs";
+import { canPickLocalFolder } from "@/platform/filesystem/workspace-fs";
+import { useIsClient } from "@/lib/hooks/use-is-client";
 
 export function FileExplorer() {
   const tree = useWorkbench((s) => s.tree);
@@ -34,17 +35,8 @@ export function FileExplorer() {
   const treeError = useWorkbench((s) => s.treeError);
   const setTree = useWorkbench((s) => s.setTree);
   const controller = useWorkspaceController();
-  const [fsaSupported, setFsaSupported] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const mountedRef = useRef(false);
-
-  useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      setMounted(true);
-      setFsaSupported(isFileSystemAccessSupported());
-    }
-  }, []);
+  const mounted = useIsClient();
+  const fsaSupported = mounted && canPickLocalFolder();
 
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set([""]));

@@ -3,10 +3,10 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { FolderOpen, FileText, Zap, Eye, Stethoscope, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { isFileSystemAccessSupported } from "@/platform/filesystem/workspace-fs";
+import { canPickLocalFolder } from "@/platform/filesystem/workspace-fs";
+import { useIsClient } from "@/lib/hooks/use-is-client";
 
 interface WelcomeOverlayProps {
   onOpenSample: () => void;
@@ -14,17 +14,8 @@ interface WelcomeOverlayProps {
 }
 
 export function WelcomeOverlay({ onOpenSample, onOpenLocal }: WelcomeOverlayProps) {
-  const [fsaSupported, setFsaSupported] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const mountedRef = useRef(false);
-
-  useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      setMounted(true);
-      setFsaSupported(isFileSystemAccessSupported());
-    }
-  }, []);
+  const mounted = useIsClient();
+  const fsaSupported = mounted && canPickLocalFolder();
 
   // Don't render on server to avoid hydration mismatch
   if (!mounted) {

@@ -1,0 +1,69 @@
+# Packaging for the desktop app. Build with `bun run desktop:package`. Only the
+# unpacked app: `bun run desktop:package -- --linux dir`.
+#
+# Requirements per platform:
+#   Linux    AppImage and .deb build on Linux.
+#   Windows  The NSIS installer builds on Windows, or on Linux with the NSIS tools.
+#   macOS    The .dmg builds on macOS only. It is unsigned unless CSC_LINK is set.
+
+appId: dev.localworkbench.desktop
+productName: Local Workbench
+copyright: Copyright (c) Local Workbench contributors
+
+# Nothing is published from this configuration; releases are attached by CI.
+publish: null
+
+# Packaging runs with the staged app folder as the project (--project release/app,
+# see scripts/package-desktop.mjs). The app folder then has no dependencies of its
+# own, so electron-builder does not fall back to the repository's node_modules.
+directories:
+  output: ../dist
+  buildResources: ../../build
+
+files:
+  - "**/*"
+
+# The Next.js standalone server is copied in by the afterPack hook: electron-builder's
+# file rules would drop its nested node_modules. The hook is staged from build/.
+afterPack: build/after-pack.cjs
+
+# The standalone server must read its own files, and native modules (sharp) cannot load from asar.
+asar: false
+npmRebuild: false
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Development
+  executableName: local-workbench
+  icon: build/icon.png
+  artifactName: "Local-Workbench-${version}-${arch}.${ext}"
+  maintainer: Local Workbench
+  synopsis: Workspace-aware document editor
+  description: Workspace-aware document editor with a local-workbench command.
+
+deb:
+  afterInstall: build/linux/after-install.sh
+  afterRemove: build/linux/after-remove.sh
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+  artifactName: "Local-Workbench-Setup-${version}.${ext}"
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+mac:
+  target: [dmg]
+  # Unsigned: set CSC_LINK and CSC_KEY_PASSWORD, and remove this line, to sign.
+  identity: null
+  category: public.app-category.developer-tools
+  icon: build/icon.png
