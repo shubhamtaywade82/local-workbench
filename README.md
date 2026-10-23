@@ -144,7 +144,7 @@ The workbench also runs in its own window, opened from a `local-workbench` comma
 
 ```bash
 bun run desktop:build                       # production build + Electron bundle
-bun run desktop:install-cli                 # links local-workbench into ~/.local/bin (Linux/macOS)
+bun run desktop:install-cli                 # links local-workbench into ~/.local/bin (Linux/macOS, and WSL)
 
 local-workbench                             # focus the app, or open a folder picker
 local-workbench ~/projects/crypto-agent     # open a folder
@@ -154,11 +154,46 @@ local-workbench --new-window ~/notes        # always open a new window
 
 - **One app per user.** A second `local-workbench` call forwards its path to the running app. A folder that is already open is focused; a file inside an open folder opens in that window; any other folder opens a new window.
 - **Scoped filesystem.** Each window is bound to one folder. `..`, absolute paths and symlinks that leave the folder are refused.
-- **No silent overwrites.** A save is refused if the file changed on disk after it was opened. Your edits stay in the tab.
+- **No silent overwrites.** A save that conflicts with a change on disk asks first: overwrite the disk version, load the disk version (discarding your edits, after a second confirmation), or keep editing. Nothing is written unless you choose so.
 - **Loopback server.** The app starts its own Next.js server on `127.0.0.1` and remembers its port, so recovery drafts survive restarts. `/api/*` requires a token generated per launch.
+- **Content security policy.** The window only loads from the app origin; other origins and `eval` are blocked. The development server gets the relaxed policy it needs for hot reload.
+- **Logs.** `desktop.log` lives in the app's log folder (Electron's `logs` path) and rotates at 5 MB, keeping three old files.
 - **Development.** Run `bun run dev`, then `LOCAL_WORKBENCH_DEV_URL=http://127.0.0.1:3000 bun run desktop:start` to load the dev server instead of the production build.
 
-Not done yet: installers (`electron-builder` is not configured), a Windows `local-workbench` launcher, and CI for the desktop build. The end-to-end acceptance test runs on Linux and needs a display and an unprivileged user; see the header of `tests/desktop/acceptance.cjs`.
+### WSL
+
+The workbench can run inside WSL with its window shown on Windows through WSLg. Install and build inside the distribution, next to your projects:
+
+```bash
+# inside WSL (Ubuntu, with WSLg: Windows 11, or Windows 10 with WSLg)
+bun install && bun run desktop:build && bun run desktop:install-cli
+local-workbench ~/projects/crypto-agent
+```
+
+- **Windows paths work in WSL.** `local-workbench C:\Users\me\projects\app` becomes `/mnt/c/Users/me/projects/app`. `\\wsl.localhost\<this distribution>\home\me\app` becomes `/home/me/app`. A path inside another distribution is refused with a message.
+- **From PowerShell or cmd.** Inside WSL, run `bun run desktop:install-cli -- --windows` once. It writes `local-workbench.cmd` into `%LOCALAPPDATA%\Microsoft\WindowsApps`, and the command forwards to this distribution with your current folder. Then `local-workbench .` works in PowerShell.
+- **Rendering.** Hardware acceleration is off inside WSL, because Chromium's GPU path misbehaves under some WSLg drivers. `LOCAL_WORKBENCH_GPU=1` turns it back on.
+- **Links.** Web links open in the Windows default browser (through `explorer.exe`).
+- **Sandbox.** Ubuntu 24.04 and recent WSL images restrict user namespaces, which Electron's sandbox needs. The launcher prints the one-line fix when it detects this; the `.deb` applies it at install.
+- **WSLg missing.** The launcher says so and gives the `wsl --update` / `wsl --shutdown` steps.
+
+### Packaging
+
+```bash
+bun run desktop:package -- --linux AppImage deb   # Linux, on Linux
+bun run desktop:package -- --win nsis             # Windows installer, on Windows
+bun run desktop:package -- --mac dmg              # macOS disk image, on macOS
+```
+
+Output goes to `release/dist/`. The installers are unsigned: set `CSC_LINK` and `CSC_KEY_PASSWORD` (and remove `identity: null` from `electron-builder.yml`) to sign. Installing the `.deb` creates the `local-workbench` command at `/usr/bin`.
+
+CI (`.github/workflows/desktop.yml`) runs the checks, the end-to-end acceptance test under Xvfb on Linux, and builds each installer on its own platform runner.
+
+### What is verified
+
+- Linux: unit tests (192), typecheck, lint, production build, the acceptance test (39 checks) against the development build, the unpacked and AppImage builds, and the installed `.deb` (install, `--version`, acceptance, removal).
+- Development server: the desktop window loads `bun run dev` with the development policy.
+- WSL: the WSL code paths are exercised with simulated environment variables on Linux. They have **not** been run on a real WSL distribution, nor are Windows or macOS builds run.
 
 ## Project Structure
 

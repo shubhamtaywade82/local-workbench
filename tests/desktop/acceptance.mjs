@@ -4,34 +4,48 @@
 //
 // Covers: open a folder, edit and save (verified on disk), restart and check
 // that content and recovery drafts survive, the bridge's rejection of hostile
-// requests, the API token guard, repeated invocation, and clean shutdown.
+// requests, the API token guard, the content security policy, save conflicts
+// (overwrite and load-from-disk), a WSL-style path argument, repeated
+// invocation, switching folders (which must invalidate the old binding), and
+// clean shutdown.
 //
 // Prerequisites (Linux):
-//   - `bun run desktop:build`, which needs a populated node_modules with the
-//     Electron binary downloaded.
+//   - `bun run desktop:build`, with the Electron binary downloaded.
 //   - A display: DISPLAY=:99 with Xvfb, or a real desktop session.
-//   - Playwright client, without touching package.json:
-//       npm i --no-save playwright-core
+//   - Playwright client, without touching package.json or the lockfile:
+//       bun add --no-save playwright-core
 //   - Chromium refuses to run as root, so run the app as an unprivileged user:
-//       LW_E2E_USER=lwtest node tests/desktop/acceptance.cjs
+//       LW_E2E_USER=lwtest node tests/desktop/acceptance.mjs
 //     The user needs read access to this repository.
 //
 // Environment:
-//   LW_E2E_USER     user to run the app as (optional; default: current user)
-//   LW_E2E_HOME     that user's home directory (default: os.homedir())
-//   DISPLAY         display to use (inherited)
-//   LW_E2E_CDP_PORT DevTools port for the app (default: 9333)
+//   LW_E2E_USER       user to run the app as (optional; default: current user)
+//   LW_E2E_HOME       that user's home directory (default: os.homedir())
+//   DISPLAY           display to use (inherited)
+//   LW_E2E_CDP_PORT   DevTools port for the app (default: 9333)
+//   LW_E2E_CLI        command that starts the launcher (default: the repository's
+//                     bin/local-workbench.mjs; for a packaged build use the
+//                     packaged launcher, for example
+//                     "ELECTRON_RUN_AS_NODE=1 <app>/local-workbench <app>/resources/app/bin/local-workbench.mjs")
+//   LW_E2E_APP_BINARY executable of the app; its main process is identified by
+//                     a command line that starts with this path (default: the
+//                     Electron binary in node_modules)
+//   WSL_DISTRO_NAME   distribution name used for the WSL-style path; set to
+//                     simulate WSL on a non-WSL host (default: Ubuntu)
 
-const { execFileSync, spawnSync } = require("node:child_process");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
+import { execFileSync, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const REPO = path.resolve(__dirname, "..", "..");
-const LAUNCHER = path.join(REPO, "bin", "local-workbench.mjs");
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const LAUNCHER_CMD = (process.env.LW_E2E_CLI || `node ${path.join(REPO, "bin", "local-workbench.mjs")}`).split(" ");
 const USER = process.env.LW_E2E_USER || null;
 const HOME = process.env.LW_E2E_HOME || os.homedir();
 const CDP_PORT = Number(process.env.LW_E2E_CDP_PORT || 9333);
+const APP_BINARY = process.env.LW_E2E_APP_BINARY || path.join(REPO, "node_modules", "electron", "dist", "electron");
+const WSL_DISTRO = process.env.WSL_DISTRO_NAME || "Ubuntu";
 const STATE_DIR = path.join(HOME, ".config", "Local Workbench");
 const stamp = Date.now();
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lw-acceptance-"));
@@ -40,9 +54,9 @@ const NOTES = path.join(TMP, `notes-${stamp}`);
 
 let chromium;
 try {
-  ({ chromium } = require("playwright-core"));
+  ({ chromium } = await import("playwright-core"));
 } catch {
-  console.error("Missing playwright-core. Install it with: npm i --no-save playwright-core");
+  console.error("Missing playwright-core. Install it with: bun add --no-save playwright-core");
   process.exit(2);
 }
 
@@ -76,38 +90,50 @@ function setupFixtures() {
   if (USER) execFileSync("chown", ["-R", `${USER}:${USER}`, TMP]);
 }
 
+/**
+ * The app's main process. Matched by the executable at the start of the command
+ * line, so a shell command that merely mentions the app is never a match.
+ * Electron's helper processes carry --type= and are excluded.
+ */
 function mainPids() {
-  const out = spawnSync("sh", ["-c", "ps -eo pid,args | grep '[d]ist-electron/main.cjs' | awk '{print $1}'"], {
-    encoding: "utf8",
-  });
-  return out.stdout.split("\n").map((x) => x.trim()).filter(Boolean);
+  const out = spawnSync("ps", ["-eo", "pid,args"], { encoding: "utf8" }).stdout;
+  const pids = [];
+  for (const line of out.split("\n")) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!match) continue;
+    const [, pid, args] = match;
+    if (args.startsWith(`${APP_BINARY} `) && !args.includes("--type=")) pids.push(pid);
+  }
+  return pids;
 }
 
 /** Runs the launcher the way a user would from a shell in `cwd`. */
-function launcher(args, cwd) {
+function launcher(args, cwd, extraEnv = {}) {
   const env = [
     `HOME=${HOME}`,
     `DISPLAY=${process.env.DISPLAY ?? ""}`,
     `LOCAL_WORKBENCH_REMOTE_DEBUG_PORT=${CDP_PORT}`,
+    `WSL_DISTRO_NAME=${WSL_DISTRO}`,
+    ...Object.entries(extraEnv).map(([key, value]) => `${key}=${value}`),
   ];
-  const command = ["env", ...env, "node", LAUNCHER, ...args];
+  // LW_E2E_CLI may set ELECTRON_RUN_AS_NODE=1 as its first word; keep it in the environment.
+  const cli = LAUNCHER_CMD.filter((word) => !word.includes("="));
+  const leadingEnv = LAUNCHER_CMD.filter((word) => word.includes("="));
+  const command = ["env", ...leadingEnv, ...env, ...cli, ...args];
   const [bin, binArgs] = USER ? ["runuser", ["-u", USER, "--", ...command]] : [command[0], command.slice(1)];
   return spawnSync(bin, binArgs, { cwd, encoding: "utf8" });
 }
 
 async function connect(timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
-  let browser;
   for (;;) {
     try {
-      browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
-      break;
+      return await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
     } catch (err) {
       if (Date.now() > deadline) throw err;
       await sleep(300);
     }
   }
-  return browser;
 }
 
 function appPages(browser) {
@@ -135,12 +161,27 @@ async function editorText(page) {
   return text.replace(/ /g, " ");
 }
 
-/** Playwright closing a page does not close an Electron window, so quit with SIGTERM. */
+/** Closing a page does not close an Electron window, so the app is stopped with SIGTERM. */
 async function stopApp(browser) {
   await browser.close().catch(() => {});
   for (const pid of mainPids()) spawnSync("kill", ["-TERM", pid]);
   await waitFor(() => mainPids().length === 0, 20000, 300);
   return mainPids().length === 0;
+}
+
+/** Records CSP violations and dialogs for a page. Answers dialogs from a queue. */
+function instrument(page, dialogAnswers) {
+  const state = { violations: [], dialogs: [] };
+  page.on("console", (message) => {
+    const text = message.text();
+    if (/Content Security Policy|Refused to (load|execute|connect|create)/i.test(text)) state.violations.push(text);
+  });
+  page.on("dialog", (dialog) => {
+    state.dialogs.push(dialog.message());
+    if (dialogAnswers.shift() === "accept") dialog.accept();
+    else dialog.dismiss();
+  });
+  return state;
 }
 
 async function run() {
@@ -154,6 +195,8 @@ async function run() {
   check("launcher starts the app", started.status === 0, (started.stderr || "").trim());
   let browser = await connect();
   let page = await windowShowing(browser, path.basename(PROJ));
+  const dialogAnswers = [];
+  let ui = instrument(page, dialogAnswers);
 
   const t0 = Date.now();
   await page.getByText("README.md", { exact: true }).first().click();
@@ -182,6 +225,7 @@ async function run() {
   launcher([PROJ], HOME);
   browser = await connect();
   page = await windowShowing(browser, path.basename(PROJ));
+  ui = instrument(page, dialogAnswers);
   check(
     "disk content persisted across restart",
     fs.readFileSync(path.join(PROJ, "README.md"), "utf8").includes("Edited by acceptance.")
@@ -195,7 +239,7 @@ async function run() {
   await page.keyboard.press("Control+s");
   await waitFor(() => fs.readFileSync(path.join(PROJ, "README.md"), "utf8").includes("Unsaved draft."));
 
-  // ---- Phase 3: the bridge and the API guard reject hostile requests ----
+  // ---- Phase 3: bridge, token guard and content security policy ----
   const probe = await page.evaluate(async () => {
     const target = await window.workbenchDesktop.getLaunchTarget();
     const call = (req) => window.workbenchDesktop.fs({ token: target.token, ...req });
@@ -219,7 +263,8 @@ async function run() {
   const outside = await fetch(`${origin}/api/ai/models`).then((r) => r.status);
   check("a local process without the token gets 403", outside === 403, `status ${outside}`);
 
-  // ---- Phase 4: repeated invocation ----
+
+  // ---- Phase 4: repeated invocation, WSL-style path, save conflicts ----
   const again = launcher(["docs/plan.md"], PROJ);
   check("invoking with a file inside the open folder exits cleanly", again.status === 0, (again.stderr || "").trim());
   check(
@@ -228,15 +273,92 @@ async function run() {
   );
   check("no second window is created for a file in an open folder", appPages(browser).length === 1, `${appPages(browser).length} window(s)`);
 
+  const wslPath = `\\\\wsl.localhost\\${WSL_DISTRO}${PROJ.replace(/\//g, "\\")}`;
+  const wslRun = launcher([wslPath], HOME);
+  check("a \\\\wsl.localhost path into this distribution is accepted", wslRun.status === 0, (wslRun.stderr || "").trim());
+  await sleep(1500);
+  check("the WSL-style path focuses the existing folder window", appPages(browser).length === 1, `${appPages(browser).length} window(s)`);
+
+  // Conflict: the file changes on disk after it was opened in the editor.
+  const planPath = path.join(PROJ, "docs", "plan.md");
+  await page.getByText("plan.md", { exact: true }).first().click();
+  await waitFor(async () => (await editorText(page)).includes("step one"), 15000);
+  await page.locator(".monaco-editor .view-lines").first().click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.type("\nMy edit.");
+  fs.writeFileSync(planPath, "external version\n");
+  dialogAnswers.push("dismiss", "dismiss");
+  await page.keyboard.press("Control+s");
+  await waitFor(() => ui.dialogs.length >= 2, 10000);
+  check("a conflicting save asks before writing", ui.dialogs.length >= 2, ui.dialogs[0] ?? "no dialog");
+  check("declining both choices writes nothing", fs.readFileSync(planPath, "utf8") === "external version\n");
+  check("the edit stays in the tab as a dirty draft", await waitFor(() => page.getByText(/^1 dirty$/).isVisible(), 5000));
+
+  dialogAnswers.push("accept");
+  await page.keyboard.press("Control+s");
+  check(
+    "choosing overwrite writes the tab's version",
+    await waitFor(() => fs.readFileSync(planPath, "utf8").includes("My edit."), 8000)
+  );
+
+  fs.writeFileSync(planPath, "reloaded version\n");
+  await page.locator(".monaco-editor .view-lines").first().click();
+  await page.keyboard.type("\nDiscard me.");
+  dialogAnswers.push("dismiss", "accept");
+  await page.keyboard.press("Control+s");
+  check(
+    "choosing load-from-disk replaces the tab with the disk version",
+    await waitFor(async () => (await editorText(page)).includes("reloaded version") && !(await editorText(page)).includes("Discard me."), 8000)
+  );
+  check("load-from-disk writes nothing and leaves the tab clean", fs.readFileSync(planPath, "utf8") === "reloaded version\n" && (await waitFor(() => page.getByText(/^0 dirty$/).isVisible(), 5000)));
+  check("no Content Security Policy violations in the session", ui.violations.length === 0, ui.violations[0] ?? "");
+
+  // The probes run inside the page's own origin. Cross-origin reachability is
+  // tested against the same server on another hostname, which is reachable without
+  // the policy, so a blocked result can only come from the policy.
+  const header = await page.evaluate(async () => (await fetch(location.href)).headers.get("content-security-policy"));
+  check("the document is served with a content security policy", /default-src 'self'/.test(header ?? ""), (header ?? "").slice(0, 60));
+  const reach = await page.evaluate(async () => {
+    const other = location.origin.replace("127.0.0.1", "localhost");
+    const outcome = (url) => fetch(url, { mode: "no-cors" }).then(() => "reached", () => "blocked");
+    return { sameOrigin: await outcome(`${location.origin}/`), otherOrigin: await outcome(`${other}/`) };
+  });
+  check("control: the same origin is reachable from the page", reach.sameOrigin === "reached", reach.sameOrigin);
+  check("another origin is blocked by the policy (connect-src 'self')", reach.otherOrigin === "blocked", reach.otherOrigin);
+  await sleep(500);
+  check("the violation detector records the blocked request", ui.violations.length >= 1, `${ui.violations.length} violation(s)`);
+
+  // ---- Phase 5: a second folder; the window for it is separate ----
   launcher([NOTES], HOME);
   check("a different folder opens a separate window", await waitFor(() => appPages(browser).length === 2, 20000));
   const notes = appPages(browser).find((p) => p !== page);
   if (notes) {
     check("the new window shows the other folder", await waitFor(() => notes.getByText("ideas.md", { exact: true }).isVisible(), 15000));
   }
+  if (notes) await notes.close().catch(() => {});
+  await waitFor(() => appPages(browser).length === 1, 5000);
 
-  // ---- Phase 5: clean shutdown ----
-  check("all windows closed and the app process exited", await stopApp(browser), `${mainPids().length} process(es) left`);
+  check("the app quits cleanly on SIGTERM", await stopApp(browser));
+
+  // ---- Phase 6: switching folders from the UI invalidates the old binding ----
+  launcher([PROJ], HOME, { LOCAL_WORKBENCH_TEST_PICK_DIRECTORY: NOTES });
+  browser = await connect();
+  page = await windowShowing(browser, path.basename(PROJ));
+  instrument(page, []);
+  const oldTarget = await page.evaluate(() => window.workbenchDesktop.getLaunchTarget());
+  await page.locator('[title="Open folder…"]').first().click();
+  const switched = await waitFor(() => page.getByText("ideas.md", { exact: true }).isVisible(), 15000);
+  check("Open folder switches the window to the chosen folder", switched);
+  const stale = await page.evaluate(
+    (token) => window.workbenchDesktop.fs({ method: "read", token, path: "README.md" }),
+    oldTarget.token
+  );
+  check("a request with the previous folder's token is refused", stale.ok === false && stale.code === "STALE_WORKSPACE", JSON.stringify(stale));
+  check("the app quits cleanly after switching folders", await stopApp(browser));
+
+  const failed = results.filter((r) => !r.ok).length;
+  console.log(`\n${results.length - failed}/${results.length} checks passed`);
+  return failed === 0;
 }
 
 run()
@@ -247,7 +369,7 @@ run()
   .finally(() => {
     for (const pid of mainPids()) spawnSync("kill", ["-TERM", pid]);
     const failed = results.filter((r) => !r.ok).length;
-    console.log(`\n${results.length - failed}/${results.length} checks passed`);
+    if (failed) console.log(`${failed} check(s) failed`);
     fs.rmSync(TMP, { recursive: true, force: true });
     process.exit(failed ? 1 : 0);
   });

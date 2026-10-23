@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { externalUrlToOpen, isAppUrl, originOf } from "./window-policy";
+import { contentSecurityPolicy, externalUrlToOpen, isAppUrl, originOf } from "./window-policy";
 
 const APP = "http://127.0.0.1:41000";
 
@@ -31,5 +31,20 @@ describe("window policy", () => {
     expect(externalUrlToOpen("javascript:alert(1)")).toBeNull();
     expect(externalUrlToOpen("ms-msdt:/id PCWDiagnostic")).toBeNull();
     expect(externalUrlToOpen("garbage")).toBeNull();
+  });
+
+  test("the production policy allows only the app origin and forbids eval", () => {
+    const csp = contentSecurityPolicy({ devServer: false });
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("worker-src 'self' blob:");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).not.toContain("'unsafe-eval'");
+    expect(csp).not.toMatch(/connect-src[^;]*ws:/);
+  });
+
+  test("the development policy adds eval and the hot-reload websocket", () => {
+    const csp = contentSecurityPolicy({ devServer: true });
+    expect(csp).toContain("'unsafe-eval'");
+    expect(csp).toMatch(/connect-src 'self' ws: wss:/);
   });
 });

@@ -23,7 +23,7 @@ import {
 import { ServerWorkspace, type ServerRootInfo } from "@/platform/filesystem/server-workspace";
 import { ElectronWorkspace } from "@/platform/filesystem/electron-workspace";
 import { getDesktopBridge } from "@/platform/electron/bridge";
-import type { DesktopLaunchTarget } from "@/lib/desktop/contract";
+import { DesktopFsError, type DesktopLaunchTarget } from "@/lib/desktop/contract";
 import type { Workspace } from "@/documents/core/types";
 import { SAMPLE_FILES, SAMPLE_WORKSPACE_NAME } from "@/platform/filesystem/sample-workspace";
 import {
@@ -313,15 +313,62 @@ export async function openFileFromWorkspace(
   );
 }
 
-/** Save a session's draft back to the active workspace. */
+type SaveConflictChoice = "overwrite" | "reload" | "keep";
+
+/**
+ * Asks what to do when the file changed on disk after it was opened. Two
+ * prompts, so that discarding edits always takes an explicit second confirmation.
+ */
+function askSaveConflict(path: string): SaveConflictChoice {
+  const name = path.split("/").pop() ?? path;
+  if (
+    window.confirm(
+      `${name} changed on disk after you opened it.\n\nOK: overwrite the file on disk with your version.\nCancel: choose again.`
+    )
+  ) {
+    return "overwrite";
+  }
+  if (
+    window.confirm(
+      "Load the version on disk instead?\n\nOK: discard your unsaved edits and load the disk version.\nCancel: keep editing (nothing is written)."
+    )
+  ) {
+    return "reload";
+  }
+  return "keep";
+}
+
+/**
+ * Saves a session's draft back to the active workspace. Returns true when the
+ * file was written. On a conflict the user decides; nothing is written unless
+ * they choose to overwrite.
+ */
 export async function saveSessionToWorkspace(
   fs: WorkspaceFileSystem,
   path: string
-): Promise<void> {
-  const session = useWorkbench.getState().sessions[path];
-  if (!session) return;
-  await fs.writeFile(path, session.draftText);
-  useWorkbench.getState().markSaved(path, session.draftText);
+): Promise<boolean> {
+  const store = useWorkbench.getState();
+  const session = store.sessions[path];
+  if (!session) return false;
+  const text = session.draftText;
+
+  try {
+    await fs.writeFile(path, text);
+  } catch (err) {
+    if (!(err instanceof DesktopFsError) || err.code !== "CONFLICT") throw err;
+    const choice = askSaveConflict(path);
+    if (choice === "keep") return false;
+    if (choice === "reload") {
+      const disk = await fs.readFile(path);
+      store.updateDraft(path, disk);
+      store.markSaved(path, disk);
+      return false;
+    }
+    await fs.writeFile(path, text, { force: true });
+  }
+  // Mark against the text that was written, so edits typed during the save stay dirty.
+  store.markSaved(path, text);
+  return true;
 }
 
 /** Save all dirty sessions. */

@@ -3,28 +3,26 @@
 
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useWorkbench } from "@/features/workbench/store";
+import { useIsClient } from "@/lib/hooks/use-is-client";
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const theme = useWorkbench((s) => s.theme);
   const setTheme = useWorkbench((s) => s.setTheme);
-  const mountedRef = useRef(false);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useIsClient();
+
+  // The inline script in layout.tsx has already applied the stored theme before
+  // first paint. Here the store catches up with what is stored.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("workbench-theme");
+      if (stored === "dark" || stored === "light") setTheme(stored);
+    } catch {}
+  }, [setTheme]);
 
   // Apply theme to DOM and persist to localStorage
   useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      setMounted(true);
-      // Sync from localStorage on mount (set by inline script)
-      try {
-        const stored = localStorage.getItem("workbench-theme");
-        if (stored && stored !== theme) {
-          setTheme(stored as "dark" | "light");
-        }
-      } catch {}
-    }
     if (!mounted) return;
     const root = document.documentElement;
     if (theme === "dark") root.classList.add("dark");
@@ -33,10 +31,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     try {
       localStorage.setItem("workbench-theme", theme);
     } catch {}
-  }, [theme, mounted, setTheme]);
+  }, [theme, mounted]);
 
-  if (!mounted) {
-    return <>{children}</>;
-  }
   return <>{children}</>;
 }

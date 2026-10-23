@@ -19,6 +19,8 @@ node_modules
 
 # production
 /build
+# packaging resources live in build/ (icon, hooks, installer scripts)
+!/build/
 
 # misc
 .DS_Store

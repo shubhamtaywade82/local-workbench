@@ -27,3 +27,32 @@ export function externalUrlToOpen(url: string): string | null {
     return null;
   }
 }
+
+export interface CspOptions {
+  /** Next.js development server: needs eval and a websocket for hot reload. */
+  readonly devServer: boolean;
+}
+
+/**
+ * Content-Security-Policy for pages served by the local app. The page is
+ * privileged, so its own script, its workers and its network access are
+ * restricted to the app origin. Next's inline bootstrap and Monaco's inline
+ * styles still need 'unsafe-inline'.
+ */
+export function contentSecurityPolicy({ devServer }: CspOptions): string {
+  const scriptSrc = ["'self'", "'unsafe-inline'", ...(devServer ? ["'unsafe-eval'"] : [])];
+  const connectSrc = ["'self'", ...(devServer ? ["ws:", "wss:"] : [])];
+  return [
+    "default-src 'self'",
+    `script-src ${scriptSrc.join(" ")}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    `connect-src ${connectSrc.join(" ")}`,
+    "worker-src 'self' blob:",
+    "frame-src 'self' blob: data:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+}

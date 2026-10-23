@@ -60,7 +60,14 @@ export type DesktopErrorCode =
 export type DesktopFsRequest =
   | { readonly method: "list"; readonly token: string; readonly path: string }
   | { readonly method: "read"; readonly token: string; readonly path: string }
-  | { readonly method: "write"; readonly token: string; readonly path: string; readonly contents: string }
+  | {
+      readonly method: "write";
+      readonly token: string;
+      readonly path: string;
+      readonly contents: string;
+      /** Overwrite even if the file changed on disk since it was read. Set only after the user confirms. */
+      readonly force?: boolean;
+    }
   | { readonly method: "create"; readonly token: string; readonly path: string; readonly contents: string }
   | { readonly method: "mkdir"; readonly token: string; readonly path: string }
   | { readonly method: "rename"; readonly token: string; readonly path: string; readonly newPath: string }

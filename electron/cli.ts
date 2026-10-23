@@ -3,6 +3,17 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { translateArgumentPath, type WslInfo } from "./platform";
+
+export {
+  detectWsl,
+  sandboxAdvice,
+  translateArgumentPath,
+  windowsCommandShim,
+  type HostEnvironment,
+  type SandboxFacts,
+  type WslInfo,
+} from "./platform";
 
 /** Injected at build time by scripts/build-electron.mjs. */
 declare const __APP_VERSION__: string | undefined;
@@ -33,9 +44,10 @@ export type CliRequest =
 /**
  * Parses user arguments. Relative paths resolve against `cwd`, which is the
  * invoking shell's directory, so a second invocation from another directory
- * is interpreted correctly.
+ * is interpreted correctly. Inside WSL, Windows paths (C:\..., \\wsl.localhost\...)
+ * are translated to Linux paths first.
  */
-export function parseCliArgs(argv: readonly string[], cwd: string): CliRequest {
+export function parseCliArgs(argv: readonly string[], cwd: string, wsl: WslInfo | null = null): CliRequest {
   const targets: string[] = [];
   let newWindow = false;
   let optionsEnded = false;
@@ -56,7 +68,9 @@ export function parseCliArgs(argv: readonly string[], cwd: string): CliRequest {
     }
     if (arg.includes("\u0000")) return { kind: "error", message: "path contains a NUL byte" };
     if (arg === "") return { kind: "error", message: "empty path argument" };
-    targets.push(path.resolve(cwd, arg));
+    const translated = translateArgumentPath(arg, wsl);
+    if (!translated.ok) return { kind: "error", message: translated.message };
+    targets.push(path.resolve(cwd, translated.path));
   }
 
   return { kind: "open", targets, newWindow };

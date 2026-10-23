@@ -7,7 +7,7 @@
 
 import type { Workspace, WorkspaceFileEntry } from "@/documents/core/types";
 import { DesktopFsError, type DesktopBridge, type DesktopFsRequest, type DesktopFsResult, type DesktopLaunchTarget } from "@/lib/desktop/contract";
-import type { WorkspaceFileSystem } from "./workspace-fs";
+import type { WorkspaceFileSystem, WriteOptions } from "./workspace-fs";
 
 export class ElectronWorkspace implements WorkspaceFileSystem {
   readonly workspace: Workspace;
@@ -34,8 +34,14 @@ export class ElectronWorkspace implements WorkspaceFileSystem {
     return this.send<string>({ method: "read", token: this.target.token, path });
   }
 
-  async writeFile(path: string, contents: string): Promise<void> {
-    await this.send<null>({ method: "write", token: this.target.token, path, contents });
+  async writeFile(path: string, contents: string, options: WriteOptions = {}): Promise<void> {
+    await this.send<null>({
+      method: "write",
+      token: this.target.token,
+      path,
+      contents,
+      ...(options.force ? { force: true } : {}),
+    });
   }
 
   async createFile(path: string, initialContent = ""): Promise<void> {

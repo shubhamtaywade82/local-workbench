@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseCliArgs, resolveTarget } from "./cli";
+import type { WslInfo } from "./platform";
 
 describe("parseCliArgs", () => {
   const cwd = "/work/current";
@@ -53,6 +54,34 @@ describe("parseCliArgs", () => {
 
   test("a lone dash is a path, not an option", () => {
     expect(parseCliArgs(["-"], cwd)).toEqual({ kind: "open", targets: ["/work/current/-"], newWindow: false });
+  });
+
+  test("inside WSL, Windows drive paths become /mnt paths before resolution", () => {
+    const wsl: WslInfo = { distro: "Ubuntu", hasDisplay: true };
+    expect(parseCliArgs(["C:\\Users\\me\\app"], "/home/me", wsl)).toEqual({
+      kind: "open",
+      targets: ["/mnt/c/Users/me/app"],
+      newWindow: false,
+    });
+  });
+
+  test("inside WSL, a \\\\wsl.localhost path into this distribution opens the Linux folder", () => {
+    const wsl: WslInfo = { distro: "Ubuntu", hasDisplay: true };
+    expect(parseCliArgs(["\\\\wsl.localhost\\Ubuntu\\home\\me\\app"], "/", wsl)).toEqual({
+      kind: "open",
+      targets: ["/home/me/app"],
+      newWindow: false,
+    });
+  });
+
+  test("inside WSL, a path in another distribution is reported as an error", () => {
+    const wsl: WslInfo = { distro: "Ubuntu", hasDisplay: true };
+    const result = parseCliArgs(["\\\\wsl.localhost\\Debian\\x"], "/", wsl);
+    expect(result.kind).toBe("error");
+  });
+
+  test("outside WSL, Windows-looking arguments are not rewritten", () => {
+    expect(parseCliArgs(["C:\\x"], "/home/me")).toEqual({ kind: "open", targets: ["/home/me/C:\\x"], newWindow: false });
   });
 
   test("rejects an empty argument and NUL bytes", () => {

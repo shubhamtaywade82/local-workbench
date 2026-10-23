@@ -6,8 +6,9 @@
 // the main process resolves that against the window's own root.
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, utilityProcess, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   DESKTOP_CHANNELS,
@@ -20,9 +21,17 @@ import {
 } from "../src/lib/desktop/contract";
 import { ServerFsError } from "../src/lib/server-fs/paths";
 import { parseCliArgs, resolveTarget, VERSION } from "./cli";
+import { RotatingLog } from "./logger";
 import { NativeWorkspace, openRoot, relativeWithin } from "./native-fs";
+import {
+  detectWsl,
+  externalOpenCommand,
+  shouldDisableHardwareAcceleration,
+  type HostEnvironment,
+  type WslInfo,
+} from "./platform";
 import { ServerManager, type ServerProcess } from "./server-manager";
-import { externalUrlToOpen, isAppUrl, originOf } from "./window-policy";
+import { contentSecurityPolicy, externalUrlToOpen, isAppUrl, originOf } from "./window-policy";
 
 const APP_NAME = "Local Workbench";
 
@@ -35,13 +44,30 @@ if (process.env.LOCAL_WORKBENCH_REMOTE_DEBUG_PORT) {
   app.commandLine.appendSwitch("remote-debugging-port", process.env.LOCAL_WORKBENCH_REMOTE_DEBUG_PORT);
 }
 
-// Bun inlines __dirname as the source folder at bundle time, so it cannot locate
-// the bundle. The running script path is correct in both development and packaged layouts.
-const bundleDir = path.dirname(path.resolve(process.argv[1]));
-/** Repository root in development (set by the launcher); the bundle's parent otherwise. */
+function readProcVersion(): string | undefined {
+  try {
+    return readFileSync("/proc/version", "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+const host: HostEnvironment = { platform: process.platform, env: process.env, procVersion: readProcVersion() };
+const wsl: WslInfo | null = detectWsl(host);
+
+// Bun inlines __dirname at bundle time, so it cannot locate the bundle. A packaged
+// app keeps the bundle in its app folder; in development it is the running script's folder.
+const bundleDir = app.isPackaged
+  ? path.join(app.getAppPath(), "dist-electron")
+  : path.dirname(path.resolve(process.argv[1]));
+/** Repository root in development (set by the launcher); the app folder when packaged. */
 const appRoot = process.env.LOCAL_WORKBENCH_HOME ?? path.resolve(bundleDir, "..");
 /** Set to e.g. http://127.0.0.1:3000 to load `bun run dev` instead of the production server. */
 const devServerUrl = process.env.LOCAL_WORKBENCH_DEV_URL;
+
+// Chromium's GPU path is unreliable under some WSLg driver setups. An editor does
+// not need hardware acceleration, so WSL uses software rendering.
+if (shouldDisableHardwareAcceleration(wsl, process.env)) app.disableHardwareAcceleration();
 
 interface WindowBinding {
   readonly window: BrowserWindow;
@@ -54,19 +80,28 @@ const bindings = new Map<number, WindowBinding>();
 let appOrigin: string | null = null;
 let desktopToken: string | undefined;
 let server: ServerManager | null = null;
-let logFile: string | null = null;
+let logger: RotatingLog | null = null;
 let shuttingDown = false;
 
 function log(line: string): void {
-  const text = `${new Date().toISOString()} ${line}\n`;
-  process.stderr.write(text);
-  if (logFile) {
-    try {
-      appendFileSync(logFile, text);
-    } catch {
-      // Logging must never take the app down.
-    }
+  const text = `${new Date().toISOString()} ${line}`;
+  process.stderr.write(`${text}\n`);
+  logger?.write(text);
+}
+
+/**
+ * Opens a web link in the default browser. Inside WSL, Electron's opener does not
+ * reach the Windows side, so the Windows shell is used instead.
+ */
+function openExternalUrl(url: string): void {
+  const command = externalOpenCommand(url, wsl);
+  if (command) {
+    const child = spawn(command.command, command.args, { detached: true, stdio: "ignore" });
+    child.on("error", (err) => log(`could not open ${url}: ${err.message}`));
+    child.unref();
+    return;
   }
+  shell.openExternal(url).catch((err: Error) => log(`could not open ${url}: ${err.message}`));
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +169,7 @@ function createWindow(workspace: NativeWorkspace | null, openFile: string | null
 function guardNavigation(contents: WebContents, origin: string): void {
   const openOutside = (url: string): void => {
     const safe = externalUrlToOpen(url);
-    if (safe) void shell.openExternal(safe);
+    if (safe) openExternalUrl(safe);
   };
   contents.setWindowOpenHandler(({ url }) => {
     openOutside(url);
@@ -172,7 +207,7 @@ function userArgsFrom(argv: readonly string[]): string[] {
 }
 
 async function handleInvocation(argv: readonly string[], cwd: string): Promise<void> {
-  const request = parseCliArgs(userArgsFrom(argv), cwd);
+  const request = parseCliArgs(userArgsFrom(argv), cwd, wsl);
   if (request.kind === "error") {
     log(`ignored invocation: ${request.message}`);
     return;
@@ -242,6 +277,7 @@ function parseFsRequest(raw: unknown): DesktopFsRequest | null {
   const request = raw as Record<string, unknown>;
   if (typeof request.method !== "string" || !FS_METHODS.has(request.method)) return null;
   if (typeof request.token !== "string" || typeof request.path !== "string") return null;
+  if (request.force !== undefined && typeof request.force !== "boolean") return null;
   if ((request.method === "write" || request.method === "create") && typeof request.contents !== "string") return null;
   if (request.method === "rename" && typeof request.newPath !== "string") return null;
   return raw as DesktopFsRequest;
@@ -282,7 +318,7 @@ async function runFsRequest(workspace: NativeWorkspace, request: DesktopFsReques
     case "read":
       return { ok: true, value: await workspace.read(request.path) };
     case "write":
-      await workspace.write(request.path, request.contents);
+      await workspace.write(request.path, request.contents, { force: request.force === true });
       return { ok: true, value: null };
     case "create":
       await workspace.create(request.path, request.contents);
@@ -317,7 +353,14 @@ function registerIpc(): void {
 
     const options: Electron.OpenDialogOptions = { title: "Open folder", properties: ["openDirectory"] };
     const parent = BrowserWindow.fromWebContents(event.sender);
-    const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+    // Test hook: when set, the folder comes from the environment instead of the
+    // native picker, so an end-to-end test can switch folders without a dialog.
+    const testFolder = process.env.LOCAL_WORKBENCH_TEST_PICK_DIRECTORY;
+    const picked = testFolder
+      ? { canceled: false, filePaths: [testFolder] }
+      : parent
+        ? await dialog.showOpenDialog(parent, options)
+        : await dialog.showOpenDialog(options);
     if (picked.canceled || picked.filePaths.length === 0) return null;
 
     try {
@@ -352,11 +395,16 @@ function registerIpc(): void {
 // Session, menu and server
 // ---------------------------------------------------------------------------
 
-function configureSession(origin: string, token: string | undefined): void {
+function configureSession(origin: string, token: string | undefined, devServer: boolean): void {
   const ses = session.defaultSession;
   // The workbench does not need any browser permission. Deny everything requested.
   ses.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   ses.setPermissionCheckHandler((_webContents, permission) => permission === "clipboard-sanitized-write");
+
+  const policy = contentSecurityPolicy({ devServer });
+  ses.webRequest.onHeadersReceived({ urls: [`${origin}/*`] }, (details, callback) => {
+    callback({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [policy] } });
+  });
 
   if (token) {
     ses.webRequest.onBeforeSendHeaders({ urls: [`${origin}/api/*`] }, (details, callback) => {
@@ -399,14 +447,14 @@ function buildMenu(): void {
 function reportFatal(err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
   log(`fatal: ${err instanceof Error ? (err.stack ?? message) : message}`);
-  dialog.showErrorBox(APP_NAME, `${message}\n\nSee ${logFile ?? "the desktop log"} for details.`);
+  dialog.showErrorBox(APP_NAME, `${message}\n\nSee ${logger?.file ?? "the desktop log"} for details.`);
   app.exit(1);
 }
 
 async function startup(): Promise<void> {
-  logFile = path.join(app.getPath("logs"), "desktop.log");
-  mkdirSync(path.dirname(logFile), { recursive: true });
+  logger = new RotatingLog(path.join(app.getPath("logs"), "desktop.log"));
   log(`starting ${APP_NAME} ${VERSION} (app root: ${appRoot})`);
+  if (wsl) log(`running inside WSL distribution "${wsl.distro || "unknown"}" (WSLg display: ${wsl.hasDisplay})`);
 
   if (devServerUrl) {
     appOrigin = originOf(devServerUrl);
@@ -426,7 +474,7 @@ async function startup(): Promise<void> {
       log,
       onUnexpectedExit: (code) => {
         log(`local server stopped unexpectedly (code ${code ?? "null"})`);
-        dialog.showErrorBox(APP_NAME, `The local server stopped unexpectedly. See ${logFile} for details.`);
+        dialog.showErrorBox(APP_NAME, `The local server stopped unexpectedly. See ${logger?.file} for details.`);
         app.quit();
       },
     });
@@ -435,7 +483,7 @@ async function startup(): Promise<void> {
     desktopToken = started.token;
   }
 
-  configureSession(appOrigin ?? "", desktopToken);
+  configureSession(appOrigin ?? "", desktopToken, Boolean(devServerUrl));
   buildMenu();
   registerIpc();
   await handleInvocation(process.argv, process.cwd());

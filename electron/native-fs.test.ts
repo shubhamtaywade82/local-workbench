@@ -200,6 +200,16 @@ describe("NativeWorkspace", () => {
       expect(await ws.read("README.md")).toBe("second\n");
     });
 
+    test("a forced write overwrites an external change, and later saves compare against the new version", async () => {
+      await ws.read("docs/plan.md");
+      writeFileSync(path.join(rootDir, "docs", "plan.md"), "edited elsewhere\n");
+      utimesSync(path.join(rootDir, "docs", "plan.md"), new Date(), new Date(Date.now() + 5000));
+      await ws.write("docs/plan.md", "my edit\n", { force: true });
+      expect(readFileSync(path.join(rootDir, "docs", "plan.md"), "utf8")).toBe("my edit\n");
+      await ws.write("docs/plan.md", "my second edit\n");
+      expect(readFileSync(path.join(rootDir, "docs", "plan.md"), "utf8")).toBe("my second edit\n");
+    });
+
     test("a file never read in this window can be written", async () => {
       await ws.write("README.md", "overwrite without read\n");
       expect(readFileSync(path.join(rootDir, "README.md"), "utf8")).toBe("overwrite without read\n");

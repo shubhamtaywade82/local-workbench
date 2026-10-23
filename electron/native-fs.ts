@@ -95,11 +95,11 @@ export class NativeWorkspace {
     return contents;
   }
 
-  async write(clientPath: string, contents: string): Promise<void> {
+  async write(clientPath: string, contents: string, options: { readonly force?: boolean } = {}): Promise<void> {
     const { rel, abs } = await this.resolve(clientPath);
     if (rel === "") throw new ServerFsError(400, "cannot write to the workspace root");
     this.assertWithinLimit(Buffer.byteLength(contents, "utf8"));
-    await this.assertUnchangedSinceRead(rel, abs);
+    if (!options.force) await this.assertUnchangedSinceRead(rel, abs);
 
     await fs.writeFile(abs, contents, "utf8").catch((err) => {
       throw mapFsError(err);
