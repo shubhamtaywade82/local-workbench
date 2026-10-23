@@ -162,13 +162,23 @@ local-workbench --new-window ~/notes        # always open a new window
 
 ### WSL
 
-The workbench can run inside WSL with its window shown on Windows through WSLg. Install and build inside the distribution, next to your projects:
+The workbench can run inside WSL with its window shown on Windows through WSLg. Install and build inside the distribution, next to your projects.
+
+Requirements: WSL 2 with WSLg (Windows 11, or Windows 10 with WSLg), Bun 1.4.2 (the version CI uses), and git. `echo "$DISPLAY$WAYLAND_DISPLAY"` must print a value.
 
 ```bash
-# inside WSL (Ubuntu, with WSLg: Windows 11, or Windows 10 with WSLg)
-bun install && bun run desktop:build && bun run desktop:install-cli
+# inside WSL (Ubuntu)
+git clone https://github.com/shubhamtaywade82/local-workbench ~/projects/local-workbench
+cd ~/projects/local-workbench
+bun install --frozen-lockfile
+bunx prisma generate                     # the production build imports the Prisma client
+node node_modules/electron/install.js    # Electron downloads its binary on first use, not during bun install
+bun run desktop:build
+bun run desktop:install-cli              # puts local-workbench in ~/.local/bin; add that folder to PATH if needed
 local-workbench ~/projects/crypto-agent
 ```
+
+If the launcher prints a `chown`/`chmod` line for `chrome-sandbox`, run that line once (see **Sandbox** below).
 
 - **Windows paths work in WSL.** `local-workbench C:\Users\me\projects\app` becomes `/mnt/c/Users/me/projects/app`. `\\wsl.localhost\<this distribution>\home\me\app` becomes `/home/me/app`. A path inside another distribution is refused with a message.
 - **From PowerShell or cmd.** Inside WSL, run `bun run desktop:install-cli -- --windows` once. It writes `local-workbench.cmd` into `%LOCALAPPDATA%\Microsoft\WindowsApps`, and the command forwards to this distribution with your current folder. Then `local-workbench .` works in PowerShell.
@@ -176,6 +186,22 @@ local-workbench ~/projects/crypto-agent
 - **Links.** Web links open in the Windows default browser (through `explorer.exe`).
 - **Sandbox.** Ubuntu 24.04 and recent WSL images restrict user namespaces, which Electron's sandbox needs. The launcher prints the one-line fix when it detects this; the `.deb` applies it at install.
 - **WSLg missing.** The launcher says so and gives the `wsl --update` / `wsl --shutdown` steps.
+
+**Acceptance test.** Run the end-to-end test against the real launcher and window. Run it as a normal WSL user, not root, because Chromium refuses to run as root:
+
+```bash
+cd ~/projects/local-workbench
+bun add --no-save playwright-core       # test client only; package.json and bun.lock stay unchanged
+bun tests/desktop/acceptance.mjs
+```
+
+The last line should read `39/39 checks passed`. The test opens and closes the app window on the Windows desktop several times.
+
+**Logs and failures.**
+- Log: `~/.config/Local Workbench/logs/desktop.log`, rotated at 5 MB into `desktop.log.1` to `desktop.log.3`. Fatal errors name this file in their dialog.
+- Sandbox errors after the fix above: check that `node_modules/electron/dist/chrome-sandbox` is owned by root and setuid (`ls -l` shows `-rwsr-xr-x`).
+- Build fails with a Prisma error: run `bunx prisma generate`.
+- A `\\wsl.localhost\...` path is refused: that path belongs to another distribution. Open it from that distribution.
 
 ### Packaging
 
