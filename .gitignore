@@ -19,6 +19,8 @@ node_modules
 
 # production
 /build
+# packaging resources live in build/ (icon, hooks, installer scripts)
+!/build/
 
 # misc
 .DS_Store
@@ -54,3 +56,9 @@ server.log
 /skills/
 .env
 prisma/db/custom.db
+
+# desktop (Electron) build output and packaged installers
+/dist-electron/
+/release/
+# `local-*` above is meant for local scratch files; the launcher is tracked.
+!bin/local-workbench.mjs

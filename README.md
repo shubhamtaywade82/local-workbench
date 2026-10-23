@@ -138,6 +138,89 @@ The roots appear under **Server folders** in the workspace switcher and reopen f
 
 Not watched: changes made outside the workbench appear after reopening the folder (or refreshing the explorer).
 
+## Desktop App (Electron)
+
+The workbench also runs in its own window, opened from a `local-workbench` command. The web app is unchanged.
+
+```bash
+bun run desktop:build                       # production build + Electron bundle
+bun run desktop:install-cli                 # links local-workbench into ~/.local/bin (Linux/macOS, and WSL)
+
+local-workbench                             # focus the app, or open a folder picker
+local-workbench ~/projects/crypto-agent     # open a folder
+local-workbench notes/plan.md               # open a file; its folder becomes the workspace
+local-workbench --new-window ~/notes        # always open a new window
+```
+
+- **One app per user.** A second `local-workbench` call forwards its path to the running app. A folder that is already open is focused; a file inside an open folder opens in that window; any other folder opens a new window.
+- **Scoped filesystem.** Each window is bound to one folder. `..`, absolute paths and symlinks that leave the folder are refused.
+- **No silent overwrites.** A save that conflicts with a change on disk asks first: overwrite the disk version, load the disk version (discarding your edits, after a second confirmation), or keep editing. Nothing is written unless you choose so.
+- **Loopback server.** The app starts its own Next.js server on `127.0.0.1` and remembers its port, so recovery drafts survive restarts. `/api/*` requires a token generated per launch.
+- **Content security policy.** The window only loads from the app origin; other origins and `eval` are blocked. The development server gets the relaxed policy it needs for hot reload.
+- **Logs.** `desktop.log` lives in the app's log folder (Electron's `logs` path) and rotates at 5 MB, keeping three old files.
+- **Development.** Run `bun run dev`, then `LOCAL_WORKBENCH_DEV_URL=http://127.0.0.1:3000 bun run desktop:start` to load the dev server instead of the production build.
+
+### WSL
+
+The workbench can run inside WSL with its window shown on Windows through WSLg. Install and build inside the distribution, next to your projects.
+
+Requirements: WSL 2 with WSLg (Windows 11, or Windows 10 with WSLg), Bun 1.4.2 (the version CI uses), and git. `echo "$DISPLAY$WAYLAND_DISPLAY"` must print a value.
+
+```bash
+# inside WSL (Ubuntu)
+git clone --branch ccr-56204320-fwfznt https://github.com/shubhamtaywade82/local-workbench ~/projects/local-workbench   # use main once PR #4 is merged
+cd ~/projects/local-workbench
+bun install --frozen-lockfile
+bunx prisma generate                     # the production build imports the Prisma client
+node node_modules/electron/install.js    # Electron downloads its binary on first use, not during bun install
+bun run desktop:build
+bun run desktop:install-cli              # puts local-workbench in ~/.local/bin; add that folder to PATH if needed
+local-workbench ~/projects/crypto-agent
+```
+
+If the launcher prints a `chown`/`chmod` line for `chrome-sandbox`, run that line once (see **Sandbox** below).
+
+- **Windows paths work in WSL.** `local-workbench C:\Users\me\projects\app` becomes `/mnt/c/Users/me/projects/app`. `\\wsl.localhost\<this distribution>\home\me\app` becomes `/home/me/app`. A path inside another distribution is refused with a message.
+- **From PowerShell or cmd.** Inside WSL, run `bun run desktop:install-cli -- --windows` once. It writes `local-workbench.cmd` into `%LOCALAPPDATA%\Microsoft\WindowsApps`, and the command forwards to this distribution with your current folder. Then `local-workbench .` works in PowerShell.
+- **Rendering.** Hardware acceleration is off inside WSL, because Chromium's GPU path misbehaves under some WSLg drivers. `LOCAL_WORKBENCH_GPU=1` turns it back on.
+- **Links.** Web links open in the Windows default browser (through `explorer.exe`).
+- **Sandbox.** Ubuntu 24.04 and recent WSL images restrict user namespaces, which Electron's sandbox needs. The launcher prints the one-line fix when it detects this; the `.deb` applies it at install.
+- **WSLg missing.** The launcher says so and gives the `wsl --update` / `wsl --shutdown` steps.
+
+**Acceptance test.** Run the end-to-end test against the real launcher and window. Run it as a normal WSL user, not root, because Chromium refuses to run as root:
+
+```bash
+cd ~/projects/local-workbench
+bun add --no-save playwright-core       # test client only; package.json and bun.lock stay unchanged
+bun tests/desktop/acceptance.mjs
+```
+
+The last line should read `39/39 checks passed`. The test opens and closes the app window on the Windows desktop several times.
+
+**Logs and failures.**
+- Log: `~/.config/Local Workbench/logs/desktop.log`, rotated at 5 MB into `desktop.log.1` to `desktop.log.3`. Fatal errors name this file in their dialog.
+- Sandbox errors after the fix above: check that `node_modules/electron/dist/chrome-sandbox` is owned by root and setuid (`ls -l` shows `-rwsr-xr-x`).
+- Build fails with a Prisma error: run `bunx prisma generate`.
+- A `\\wsl.localhost\...` path is refused: that path belongs to another distribution. Open it from that distribution.
+
+### Packaging
+
+```bash
+bun run desktop:package -- --linux AppImage deb   # Linux, on Linux
+bun run desktop:package -- --win nsis             # Windows installer, on Windows
+bun run desktop:package -- --mac dmg              # macOS disk image, on macOS
+```
+
+Output goes to `release/dist/`. The installers are unsigned: set `CSC_LINK` and `CSC_KEY_PASSWORD` (and remove `identity: null` from `electron-builder.yml`) to sign. Installing the `.deb` creates the `local-workbench` command at `/usr/bin`.
+
+CI (`.github/workflows/desktop.yml`) runs the checks, the end-to-end acceptance test under Xvfb on Linux, and builds each installer on its own platform runner.
+
+### What is verified
+
+- Linux: unit tests (192), typecheck, lint, production build, the acceptance test (39 checks) against the development build, the unpacked and AppImage builds, and the installed `.deb` (install, `--version`, acceptance, removal).
+- Development server: the desktop window loads `bun run dev` with the development policy.
+- WSL: the WSL code paths are exercised with simulated environment variables on Linux. They have **not** been run on a real WSL distribution, nor are Windows or macOS builds run.
+
 ## Project Structure
 
 ```

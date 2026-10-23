@@ -4,10 +4,17 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack -p 3000 2>&1 | tee dev.log",
-    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
+    "build": "next build && node scripts/copy-standalone.mjs",
+    "desktop:bundle": "bun scripts/build-electron.mjs",
+    "desktop:build": "bun run build && bun run desktop:bundle",
+    "desktop:start": "node bin/local-workbench.mjs",
+    "desktop:install-cli": "node scripts/install-cli.mjs",
+    "desktop:acceptance": "node tests/desktop/acceptance.mjs",
+    "desktop:stage": "node scripts/stage-desktop.mjs",
+    "desktop:package": "bun run desktop:build && node scripts/package-desktop.mjs",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
-    "test": "OPENUI_TELEMETRY_DISABLED=1 bun test src",
+    "test": "OPENUI_TELEMETRY_DISABLED=1 bun test src electron",
     "eval:genui": "OPENUI_TELEMETRY_DISABLED=1 bun scripts/genui-eval.ts",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
@@ -104,10 +111,18 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "bun-types": "^1.3.4",
+    "electron": "^45.0.0",
+    "electron-builder": "^26",
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5"
+  },
+  "trustedDependencies": [
+    "electron"
+  ],
+  "bin": {
+    "local-workbench": "bin/local-workbench.mjs"
   }
 }

@@ -21,12 +21,18 @@ import type {
   WorkspaceFileEntry,
 } from "@/documents/core/types";
 import { SAMPLE_FILES, SAMPLE_WORKSPACE_NAME } from "./sample-workspace";
+import { getDesktopBridge } from "@/platform/electron/bridge";
+
+export interface WriteOptions {
+  /** Write even if the file changed on disk after it was read. */
+  readonly force?: boolean;
+}
 
 export interface WorkspaceFileSystem {
   readonly workspace: Workspace;
   listDirectory(path: string): Promise<WorkspaceFileEntry[]>;
   readFile(path: string): Promise<string>;
-  writeFile(path: string, contents: string): Promise<void>;
+  writeFile(path: string, contents: string, options?: WriteOptions): Promise<void>;
   createFile(path: string, initialContent?: string): Promise<void>;
   createDirectory(path: string): Promise<void>;
   rename(path: string, newPath: string): Promise<void>;
@@ -277,6 +283,14 @@ interface FSDirHandle extends FSHandle {
   queryPermission?: (opts: {
     mode: "read" | "readwrite";
   }) => Promise<"granted" | "denied" | "prompt">;
+}
+
+/**
+ * Whether the user can pick a local folder: the native picker of the desktop
+ * shell, or the browser's File System Access API.
+ */
+export function canPickLocalFolder(): boolean {
+  return getDesktopBridge() !== null || isFileSystemAccessSupported();
 }
 
 export function isFileSystemAccessSupported(): boolean {
