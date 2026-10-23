@@ -105,8 +105,13 @@ export interface Workspace {
   name: string;
   rootPath: string;
   /** Origin of the workspace — affects what operations are allowed. */
-  source: "file-system-access" | "in-memory" | "indexeddb" | "server";
+  source: "file-system-access" | "in-memory" | "indexeddb" | "server" | "electron";
   createdAt: number;
   /** For `source: "server"`: the opaque root id from GET /api/fs/roots. */
   serverRootId?: string;
+  /**
+   * For `source: "electron"`: stable id derived from the folder's canonical
+   * path. Keeps recovery drafts separate for folders that share a basename.
+   */
+  rootId?: string;
 }

@@ -138,6 +138,28 @@ The roots appear under **Server folders** in the workspace switcher and reopen f
 
 Not watched: changes made outside the workbench appear after reopening the folder (or refreshing the explorer).
 
+## Desktop App (Electron)
+
+The workbench also runs in its own window, opened from a `local-workbench` command. The web app is unchanged.
+
+```bash
+bun run desktop:build                       # production build + Electron bundle
+bun run desktop:install-cli                 # links local-workbench into ~/.local/bin (Linux/macOS)
+
+local-workbench                             # focus the app, or open a folder picker
+local-workbench ~/projects/crypto-agent     # open a folder
+local-workbench notes/plan.md               # open a file; its folder becomes the workspace
+local-workbench --new-window ~/notes        # always open a new window
+```
+
+- **One app per user.** A second `local-workbench` call forwards its path to the running app. A folder that is already open is focused; a file inside an open folder opens in that window; any other folder opens a new window.
+- **Scoped filesystem.** Each window is bound to one folder. `..`, absolute paths and symlinks that leave the folder are refused.
+- **No silent overwrites.** A save is refused if the file changed on disk after it was opened. Your edits stay in the tab.
+- **Loopback server.** The app starts its own Next.js server on `127.0.0.1` and remembers its port, so recovery drafts survive restarts. `/api/*` requires a token generated per launch.
+- **Development.** Run `bun run dev`, then `LOCAL_WORKBENCH_DEV_URL=http://127.0.0.1:3000 bun run desktop:start` to load the dev server instead of the production build.
+
+Not done yet: installers (`electron-builder` is not configured), a Windows `local-workbench` launcher, and CI for the desktop build. The end-to-end acceptance test runs on Linux and needs a display and an unprivileged user; see the header of `tests/desktop/acceptance.cjs`.
+
 ## Project Structure
 
 ```

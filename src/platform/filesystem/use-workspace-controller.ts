@@ -21,6 +21,10 @@ import {
   type WorkspaceFileSystem,
 } from "@/platform/filesystem/workspace-fs";
 import { ServerWorkspace, type ServerRootInfo } from "@/platform/filesystem/server-workspace";
+import { ElectronWorkspace } from "@/platform/filesystem/electron-workspace";
+import { getDesktopBridge } from "@/platform/electron/bridge";
+import type { DesktopLaunchTarget } from "@/lib/desktop/contract";
+import type { Workspace } from "@/documents/core/types";
 import { SAMPLE_FILES, SAMPLE_WORKSPACE_NAME } from "@/platform/filesystem/sample-workspace";
 import {
   addRecentWorkspace,
@@ -37,11 +41,21 @@ export type WorkspaceController = {
   openLocalDirectory: () => Promise<void>;
   /** Open a server-side root (WORKSPACE_ROOTS, e.g. a folder inside WSL). */
   openServerWorkspace: (root: ServerRootInfo) => Promise<void>;
+  /** Activate the folder the desktop shell launched this window with. */
+  openDesktopWorkspace: (target: DesktopLaunchTarget) => Promise<void>;
   /** Returns the active workspace fs (sample or local) or null. */
   getFs: () => WorkspaceFileSystem | null;
 };
 
 let fsRef: WorkspaceFileSystem | null = null;
+
+/**
+ * Key for per-workspace recovery drafts. Desktop folders carry a path-derived
+ * rootId so two folders named "notes" do not share drafts.
+ */
+export function draftScope(workspace: Workspace): string {
+  return `${workspace.source}:${workspace.rootId ?? workspace.name}`;
+}
 
 export function useWorkspaceController(): WorkspaceController {
   const setWorkspace = useWorkbench((s) => s.setWorkspace);
@@ -68,6 +82,10 @@ export function useWorkspaceController(): WorkspaceController {
   );
 
   const recordRecent = useCallback(async (ws: WorkspaceFileSystem) => {
+    // Desktop folders reopen through the launcher or the native picker, not
+    // from this list. A recent entry would send the switcher to the browser
+    // re-pick flow, which does not apply to them.
+    if (ws.workspace.source === "electron") return;
     const recent: RecentWorkspace = {
       id: `${ws.workspace.source}:${ws.workspace.name}`,
       name: ws.workspace.name,
@@ -132,9 +150,7 @@ export function useWorkspaceController(): WorkspaceController {
       await refreshRoot(fs);
       // Offer to restore recovery drafts if present.
       try {
-        const drafts = await listRecoveryDrafts(
-          `${fs.workspace.source}:${fs.workspace.name}`
-        );
+        const drafts = await listRecoveryDrafts(draftScope(fs.workspace));
         if (drafts.length > 0) {
           // Open each draft path with its draft content so the user sees the
           // unsaved state immediately, with the dirty indicator on.
@@ -169,7 +185,34 @@ export function useWorkspaceController(): WorkspaceController {
     [recordRecent, refreshRoot, setWorkspace]
   );
 
+  const openDesktopWorkspace = useCallback(
+    async (target: DesktopLaunchTarget) => {
+      const bridge = getDesktopBridge();
+      if (!bridge) return;
+      await activatePersistentWorkspace(new ElectronWorkspace(bridge, target));
+      if (target.openFile) {
+        try {
+          const fs = fsRef;
+          if (fs) await openFileFromWorkspace(fs, target.openFile);
+        } catch (err) {
+          console.error(`Could not open ${target.openFile}:`, err);
+        }
+      }
+    },
+    [activatePersistentWorkspace]
+  );
+
   const openLocalDirectory = useCallback(async () => {
+    const bridge = getDesktopBridge();
+    if (bridge) {
+      // Confirm before the native picker: choosing a folder rebinds the window
+      // immediately, after which unsaved tabs could no longer be written.
+      if (!confirmSwitchWorkspace()) return;
+      const target = await bridge.chooseWorkspace();
+      if (!target) return;
+      await activatePersistentWorkspace(new ElectronWorkspace(bridge, target));
+      return;
+    }
     if (!isFileSystemAccessSupported()) {
       // Fall back silently to sample workspace.
       await openSampleWorkspace();
@@ -199,7 +242,7 @@ export function useWorkspaceController(): WorkspaceController {
     if (!workspace) return;
     flushTimer.current = setInterval(async () => {
       if (!fsRef) return;
-      const wsId = `${fsRef.workspace.source}:${fsRef.workspace.name}`;
+      const wsId = draftScope(fsRef.workspace);
       // Save dirty drafts.
       for (const s of Object.values(sessions)) {
         if (s.isDirty) {
@@ -227,7 +270,7 @@ export function useWorkspaceController(): WorkspaceController {
   const prevDirty = useRef<Record<string, boolean>>({});
   useEffect(() => {
     if (!fsRef) return;
-    const wsId = `${fsRef.workspace.source}:${fsRef.workspace.name}`;
+    const wsId = draftScope(fsRef.workspace);
     for (const s of Object.values(sessions)) {
       const wasDirty = prevDirty.current[s.path] ?? false;
       if (wasDirty && !s.isDirty) {
@@ -243,13 +286,13 @@ export function useWorkspaceController(): WorkspaceController {
   // Clear all drafts for the workspace when it changes.
   useEffect(() => {
     if (!fsRef) return;
-    const wsId = `${fsRef.workspace.source}:${fsRef.workspace.name}`;
+    const wsId = draftScope(fsRef.workspace);
     // Note: we do NOT clear drafts here on workspace open — they may be
     // restored above. Drafts are cleared when sessions become clean.
     void wsId;
   }, [workspace]);
 
-  return { openSampleWorkspace, openLocalDirectory, openServerWorkspace, getFs };
+  return { openSampleWorkspace, openLocalDirectory, openServerWorkspace, openDesktopWorkspace, getFs };
 }
 
 /** Read a file from the active workspace into a new editor tab. */

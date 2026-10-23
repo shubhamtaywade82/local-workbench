@@ -92,7 +92,7 @@ export function CommandPalette() {
       "@/platform/filesystem/use-workspace-controller"
     );
     // We need the controller's getFs; emulate via a singleton access.
-    const fs = (window as unknown as { __workbenchFs?: { getFs: () => unknown } }).__workbenchFs?.getFs?.() as
+    const fs = (window as unknown as { __workbenchController?: { getFs: () => unknown } }).__workbenchController?.getFs?.() as
       | { readFile: (p: string) => Promise<string> }
       | null;
     if (!fs) return;
@@ -114,21 +114,21 @@ export function CommandPalette() {
   }
 
   async function runSaveAll() {
-    const fs = (window as unknown as { __workbenchFs?: { getFs: () => unknown } }).__workbenchFs?.getFs?.() as
+    const fs = (window as unknown as { __workbenchController?: { getFs: () => unknown } }).__workbenchController?.getFs?.() as
       | { writeFile: (p: string, c: string) => Promise<void> }
       | null;
     if (!fs) return;
-    await saveAllSessions(fs as never).catch(() => {});
+    await saveAllSessions(fs as never).catch((err: unknown) => window.alert(`Could not save: ${(err as Error).message}`));
     setOpen(false);
   }
 
   async function runSaveActive() {
-    const fs = (window as unknown as { __workbenchFs?: { getFs: () => unknown } }).__workbenchFs?.getFs?.() as
+    const fs = (window as unknown as { __workbenchController?: { getFs: () => unknown } }).__workbenchController?.getFs?.() as
       | { writeFile: (p: string, c: string) => Promise<void> }
       | null;
     const active = useWorkbench.getState().activeTab;
     if (!fs || !active) return;
-    await saveSessionToWorkspace(fs as never, active).catch(() => {});
+    await saveSessionToWorkspace(fs as never, active).catch((err: unknown) => window.alert(`Could not save: ${(err as Error).message}`));
     setOpen(false);
   }
 

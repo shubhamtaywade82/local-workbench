@@ -170,7 +170,9 @@ export function WorkspaceSwitcher({ variant = "default", className }: Props) {
                     ? "Sample (in-memory)"
                     : workspace.source === "server"
                       ? "Server folder"
-                      : workspace.source}
+                      : workspace.source === "electron"
+                        ? "Desktop folder"
+                        : workspace.source}
               </div>
               {!fsaSupported && (
                 <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
