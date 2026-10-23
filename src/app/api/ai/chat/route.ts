@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import {
-  getDefaultModel,
+  getActionModel,
   errorMessage,
   getOpenAICompatible,
 } from "@/lib/ai/server";
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     { role: "system", content: systemPrompt },
     ...body.messages,
   ];
-  const model = body.model || getDefaultModel();
+  const model = body.model || getActionModel("chat");
 
   const headers = {
     "Content-Type": "text/event-stream; charset=utf-8",

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getDefaultModel,
+  getActionModel,
   errorMessage,
   extractJson,
   getOpenAICompatible,
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     const openai = getOpenAICompatible();
     const result = await openai.chat.completions.create({
-      model: getDefaultModel(),
+      model: getActionModel("explain"),
       stream: false,
       messages: [
         { role: "system", content: systemPrompt },
@@ -158,7 +158,7 @@ async function explainAsGenerativeUi(source: string, contextParts: string[]): Pr
   try {
     const openai = getOpenAICompatible();
     const result = await openai.chat.completions.create({
-      model: getDefaultModel(),
+      model: getActionModel("explain"),
       stream: false,
       messages: [
         { role: "system", content: systemPrompt },

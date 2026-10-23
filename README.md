@@ -99,6 +99,25 @@ For multiple Ollama hosts / Ollama Cloud keys with failover, see `OLLAMA_ENDPOIN
 
 Without a configured provider, the AI panel shows "offline" but all other features work.
 
+### Per-action models
+
+Each AI action can run on its own model. Set `AI_MODEL_CHAT`, `AI_MODEL_FIX`, `AI_MODEL_EXPLAIN`, `AI_MODEL_CONVERT`, `AI_MODEL_DIAGRAM` or `AI_MODEL_IMPROVE`. An action without a variable uses the default model. The overrides apply to whichever provider is active, so use names that provider serves. An invalid name is logged and ignored.
+
+Example with the MiniCPM5 variants from [agent-tui](https://github.com/shubhamtaywade82/agent-tui) (`supervisor/modelfiles/`, built with `supervisor/scripts/seed-models.sh`):
+
+| Action | Variable | Suggested variant | Why |
+|---|---|---|---|
+| Chat | `AI_MODEL_CHAT` | `minicpm5-reasoning` | Multi-step answers; no stop sequences |
+| Fix | `AI_MODEL_FIX` | `minicpm5-coding-agent` | 16K context and 4096 output tokens for whole-file edits |
+| Explain | `AI_MODEL_EXPLAIN` | `minicpm5-summarizer` | Condensed explanations |
+| Convert | `AI_MODEL_CONVERT` | `minicpm5-coding-agent` | Code and format conversion |
+| Diagram | `AI_MODEL_DIAGRAM` | `minicpm5-coding-agent` | Mermaid is code |
+| Improve docs | `AI_MODEL_IMPROVE` | `minicpm5-low-repetition` | Prose; compare with `minicpm5-coding-agent` |
+
+- **Do not assign code-returning actions** to `minicpm5-analyst`, `minicpm5-long-context`, `minicpm5-toolagent` or `minicpm5-tool-agent`. Their Modelfiles stop generation at a code fence (```` ``` ````), which cuts fenced code off.
+- **Do not assign `minicpm5-cloud-escalation`.** It prepares prompts for a cloud model, and this app keeps prompts on the machine.
+- **Unverified:** whether a request's system message replaces the Modelfile's system prompt. If it does, a variant's prompt rules do not apply to these routes, and only its parameters take effect. Test it with `curl` against `/api/chat` before relying on the variant prompts.
+
 ### Generative UI (experimental, OpenUI Lang)
 
 With `AI_GENERATIVE_UI=1`, chat and **Explain** answers may include interactive UI built from a small workbench component library: `Stack`, `Card`, `Text`, `Callout`, `KeyValue`, `Table`, `CodeBlock`, `ProposedEdit`. The model writes [OpenUI Lang](https://www.openui.com/docs/openui-lang) in fenced ```` ```openui-lang ```` blocks (inline mode: plain text by default); `@openuidev/react-lang`'s `Renderer` draws them progressively as they stream.

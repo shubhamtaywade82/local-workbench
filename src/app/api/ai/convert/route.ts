@@ -4,7 +4,7 @@ import JSON5 from "json5";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import {
-  getDefaultModel,
+  getActionModel,
   errorMessage,
   getOpenAICompatible,
   stripCodeFence,
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     const openai = getOpenAICompatible();
     const result = await openai.chat.completions.create({
-      model: getDefaultModel(),
+      model: getActionModel("convert"),
       stream: false,
       messages: [
         { role: "system", content: systemPrompt },

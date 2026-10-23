@@ -12,6 +12,7 @@
  */
 import OpenAI from "openai";
 import { OllamaClient, type OllamaEndpoint } from "@nemesis-oss/ollama-sdk";
+import { resolveActionModel, type AiAction } from "./action-models";
 
 /**
  * Provider type for the AI backend.
@@ -42,6 +43,14 @@ export function getDefaultModel(): string {
     return process.env.OLLAMA_MODEL || "llama3.1:8b";
   }
   return process.env.OPENAI_MODEL || "gpt-4o-mini";
+}
+
+/**
+ * Model for one AI action: its `AI_MODEL_*` override, or the default model.
+ * See `./action-models` for the rules.
+ */
+export function getActionModel(action: AiAction): string {
+  return resolveActionModel(action, process.env, getDefaultModel());
 }
 
 // ---------------------------------------------------------------------------
