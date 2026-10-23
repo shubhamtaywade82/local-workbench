@@ -168,7 +168,7 @@ Requirements: WSL 2 with WSLg (Windows 11, or Windows 10 with WSLg), Bun 1.4.2 (
 
 ```bash
 # inside WSL (Ubuntu)
-git clone --branch ccr-56204320-fwfznt https://github.com/shubhamtaywade82/local-workbench ~/projects/local-workbench   # use main once PR #4 is merged
+git clone https://github.com/shubhamtaywade82/local-workbench ~/projects/local-workbench
 cd ~/projects/local-workbench
 bun install --frozen-lockfile
 bunx prisma generate                     # the production build imports the Prisma client
