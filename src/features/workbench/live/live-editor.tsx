@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { useWorkbench } from "@/features/workbench/store";
 import { PreviewPane } from "@/features/workbench/preview/preview-pane";
 import { documentRegistry } from "@/documents/core/registry";
+import { runAiTask } from "@/lib/ai/client/run-task";
 import {
   applyBlockEdit,
   parseMarkdownBlocks,
@@ -140,18 +141,37 @@ function MarkdownLive({ path, draft }: { path: string; draft: string }) {
   );
 }
 
-/** Asks the server to rewrite one block. Uses the `improve` action model. */
+/** Asks the server to rewrite one block using the unified AI task endpoint. */
 async function requestSuggestion(source: string): Promise<string> {
-  const res = await fetch("/api/ai/improve-docs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source, tone: "concise", preserveCodeBlocks: true }),
-  });
-  const json = (await res.json().catch(() => null)) as { improved?: string; error?: string } | null;
-  if (!res.ok || typeof json?.improved !== "string") {
-    throw new Error(json?.error ?? `The suggestion request failed (HTTP ${res.status}).`);
+  let improved = "";
+  const controller = new AbortController();
+  await runAiTask(
+    {
+      task: "improve-docs",
+      document: {
+        path: "block.md",
+        languageId: "markdown",
+        adapterId: "markdown",
+        text: source,
+      },
+      options: {
+        tone: "concise",
+        preserveCodeBlocks: true,
+      },
+    },
+    {
+      signal: controller.signal,
+      onEvent: (event) => {
+        if (event.type === "result" && event.result.kind === "edit") {
+          improved = event.result.newText;
+        }
+      },
+    }
+  );
+  if (!improved) {
+    throw new Error("The suggestion request did not produce an improvement.");
   }
-  return json.improved;
+  return improved;
 }
 
 function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {

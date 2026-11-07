@@ -26,8 +26,10 @@ import { documentRegistry } from "@/documents/core/registry";
 import type { WorkspaceFileEntry } from "@/documents/core/types";
 import { cn } from "@/lib/utils";
 import { WorkspaceSwitcher } from "@/features/workbench/shell/workspace-switcher";
-import { canPickLocalFolder } from "@/platform/filesystem/workspace-fs";
+import { isFileSystemAccessSupported } from "@/platform/filesystem/workspace-fs";
 import { useIsClient } from "@/lib/hooks/use-is-client";
+import { promptText } from "@/features/workbench/dialogs/dialog-store";
+import { notify } from "@/features/workbench/notify";
 
 export function FileExplorer() {
   const tree = useWorkbench((s) => s.tree);
@@ -36,7 +38,7 @@ export function FileExplorer() {
   const setTree = useWorkbench((s) => s.setTree);
   const controller = useWorkspaceController();
   const mounted = useIsClient();
-  const fsaSupported = mounted && canPickLocalFolder();
+  const fsaSupported = mounted && isFileSystemAccessSupported();
 
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set([""]));
@@ -85,12 +87,19 @@ export function FileExplorer() {
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={() => {
-              const name = prompt("New file path:", "untitled.md");
+            onClick={async () => {
+              const name = await promptText({
+                title: "New file",
+                description: "The path is relative to the workspace root. Folders in the path are created as needed.",
+                label: "File path",
+                initialValue: "untitled.md",
+                confirmLabel: "Create file",
+                validate: (value) => (value.trim().length === 0 ? "Enter a file name." : null),
+              });
               if (!name) return;
               const fs = controller.getFs();
               if (!fs) return;
-              fs.createFile(name, "").then(refresh).catch((e) => alert(`Error: ${e.message}`));
+              fs.createFile(name.trim(), "").then(refresh).catch((e: Error) => notify(`Could not create the file: ${e.message}`, "error"));
             }}
             title="New file"
           >
@@ -100,12 +109,18 @@ export function FileExplorer() {
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={() => {
-              const name = prompt("New folder path:", "new-folder");
+            onClick={async () => {
+              const name = await promptText({
+                title: "New folder",
+                label: "Folder path",
+                initialValue: "new-folder",
+                confirmLabel: "Create folder",
+                validate: (value) => (value.trim().length === 0 ? "Enter a folder name." : null),
+              });
               if (!name) return;
               const fs = controller.getFs();
               if (!fs) return;
-              fs.createDirectory(name).then(refresh).catch((e) => alert(`Error: ${e.message}`));
+              fs.createDirectory(name.trim()).then(refresh).catch((e: Error) => notify(`Could not create the folder: ${e.message}`, "error"));
             }}
             title="New folder"
           >

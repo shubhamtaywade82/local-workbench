@@ -20,38 +20,6 @@ export interface OpenTab {
   adapterId: string;
 }
 
-export interface AiMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  /** Streaming marker — true while the assistant chunk is still arriving. */
-  streaming?: boolean;
-  /** Optional proposed edit for review-and-apply UX. */
-  proposedEdit?: {
-    label: string;
-    description?: string;
-    newText: string;
-    /** Path the edit applies to. */
-    path: string;
-    /** Diff representation for the UI. */
-    diff?: string;
-  };
-  error?: string;
-  createdAt: number;
-  /** Content may contain ```openui-lang blocks rendered as generative UI. */
-  generativeUi?: boolean;
-  /** Document path the message was generated against (target for proposed edits). */
-  contextPath?: string;
-}
-
-export interface AiProviderInfo {
-  id: string;
-  name: string;
-  available: boolean;
-  /** Server has AI_GENERATIVE_UI enabled. */
-  generativeUi?: boolean;
-}
-
 interface WorkbenchState {
   // --- Workspace -----------------------------------------------------------
   workspace: Workspace | null;
@@ -73,13 +41,14 @@ interface WorkbenchState {
 
   // --- Diagnostics --------------------------------------------------------
   diagnostics: Record<string, Diagnostic[]>;
+  /** Latest Archify verdict per document. Kept apart: it is asynchronous and the parser's list is replaced on every edit. */
+  archifyDiagnostics: Record<string, Diagnostic[]>;
   diagnosticsVisible: boolean;
 
-  // --- AI -----------------------------------------------------------------
+  // --- Panels -------------------------------------------------------------
   aiVisible: boolean;
-  aiMessages: AiMessage[];
-  aiBusy: boolean;
-  aiProvider: AiProviderInfo | null;
+  /** Which pane a phone shows: the editor or the preview. */
+  mobileView: "editor" | "preview";
 
   // --- UI -----------------------------------------------------------------
   explorerVisible: boolean;
@@ -107,14 +76,11 @@ interface WorkbenchState {
 
   setDiagnostics: (path: string, diagnostics: Diagnostic[]) => void;
   clearDiagnostics: (path: string) => void;
+  setArchifyDiagnostics: (path: string, diagnostics: Diagnostic[]) => void;
   setDiagnosticsVisible: (visible: boolean) => void;
 
   setAiVisible: (visible: boolean) => void;
-  setAiBusy: (busy: boolean) => void;
-  setAiProvider: (provider: AiProviderInfo | null) => void;
-  appendAiMessage: (message: AiMessage) => void;
-  updateAiMessage: (id: string, patch: Partial<AiMessage>) => void;
-  clearAiMessages: () => void;
+  setMobileView: (view: "editor" | "preview") => void;
 
   setExplorerVisible: (visible: boolean) => void;
   setCommandPaletteOpen: (open: boolean) => void;
@@ -136,12 +102,11 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
   editorViewMode: "code",
 
   diagnostics: {},
+  archifyDiagnostics: {},
   diagnosticsVisible: true,
 
   aiVisible: true,
-  aiMessages: [],
-  aiBusy: false,
-  aiProvider: null,
+  mobileView: "editor",
 
   explorerVisible: true,
   commandPaletteOpen: false,
@@ -174,13 +139,15 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
       delete sessions[path];
       const diagnostics = { ...state.diagnostics };
       delete diagnostics[path];
+      const archifyDiagnostics = { ...state.archifyDiagnostics };
+      delete archifyDiagnostics[path];
       const activeTab =
         state.activeTab === path
           ? openTabs.length > 0
             ? openTabs[openTabs.length - 1].path
             : null
           : state.activeTab;
-      return { openTabs, sessions, diagnostics, activeTab };
+      return { openTabs, sessions, diagnostics, archifyDiagnostics, activeTab };
     }),
 
   closeAllTabs: () =>
@@ -188,6 +155,7 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
       openTabs: [],
       sessions: {},
       diagnostics: {},
+      archifyDiagnostics: {},
       activeTab: null,
     }),
 
@@ -262,20 +230,14 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
       delete diagnostics[path];
       return { diagnostics };
     }),
+  setArchifyDiagnostics: (path, diagnostics) =>
+    set((state) => ({
+      archifyDiagnostics: { ...state.archifyDiagnostics, [path]: diagnostics },
+    })),
   setDiagnosticsVisible: (diagnosticsVisible) => set({ diagnosticsVisible }),
 
   setAiVisible: (aiVisible) => set({ aiVisible }),
-  setAiBusy: (aiBusy) => set({ aiBusy }),
-  setAiProvider: (aiProvider) => set({ aiProvider }),
-  appendAiMessage: (message) =>
-    set((state) => ({ aiMessages: [...state.aiMessages, message] })),
-  updateAiMessage: (id, patch) =>
-    set((state) => ({
-      aiMessages: state.aiMessages.map((m) =>
-        m.id === id ? { ...m, ...patch } : m
-      ),
-    })),
-  clearAiMessages: () => set({ aiMessages: [] }),
+  setMobileView: (mobileView) => set({ mobileView }),
 
   setExplorerVisible: (explorerVisible) => set({ explorerVisible }),
   setCommandPaletteOpen: (commandPaletteOpen) =>
@@ -298,7 +260,7 @@ export function selectActiveTab(state: WorkbenchState): OpenTab | null {
 }
 
 export function selectAllDiagnostics(state: WorkbenchState): Diagnostic[] {
-  return Object.values(state.diagnostics).flat();
+  return [...Object.values(state.diagnostics).flat(), ...Object.values(state.archifyDiagnostics).flat()];
 }
 
 export function selectDirtyCount(state: WorkbenchState): number {

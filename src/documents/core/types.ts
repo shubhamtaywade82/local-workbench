@@ -3,6 +3,8 @@
 // tested without a browser, used by web workers, and reused by the AI / diagnostics
 // subsystems.
 
+import type { ArchifyDiagramType } from "@/lib/archify/contract";
+
 export type DiagnosticSeverity = "error" | "warning" | "info" | "hint";
 
 export interface SourceRange {
@@ -57,6 +59,13 @@ export type PreviewModel =
   | { kind: "diagram"; engine: "mermaid"; source: string }
   | { kind: "xml-tree"; source: string; value: unknown }
   | { kind: "sandboxed-html"; source: string }
+  | {
+      /** An Archify IR document. The preview pane renders it live through the server. */
+      kind: "archify";
+      source: string;
+      diagramType: ArchifyDiagramType;
+      filePath: string;
+    }
   | { kind: "text-fallback"; source: string; language: string };
 
 export interface ParseSuccess {
@@ -79,6 +88,12 @@ export interface DocumentAdapter {
   id: string;
   /** File extensions this adapter handles, lower-case without the dot. */
   extensions: readonly string[];
+  /**
+   * Claims a document by its content, before extension lookup. Used for formats
+   * that share an extension with another adapter, such as Archify IR (.json).
+   * Implementations must be cheap and must tolerate half-typed input.
+   */
+  matchesContent?(source: string, filePath: string): boolean;
   /** Monaco language id for syntax highlighting. */
   languageId: string;
   /** Human-friendly display name shown in the UI. */
@@ -105,13 +120,8 @@ export interface Workspace {
   name: string;
   rootPath: string;
   /** Origin of the workspace — affects what operations are allowed. */
-  source: "file-system-access" | "in-memory" | "indexeddb" | "server" | "electron";
+  source: "file-system-access" | "in-memory" | "indexeddb" | "server";
   createdAt: number;
   /** For `source: "server"`: the opaque root id from GET /api/fs/roots. */
   serverRootId?: string;
-  /**
-   * For `source: "electron"`: stable id derived from the folder's canonical
-   * path. Keeps recovery drafts separate for folders that share a basename.
-   */
-  rootId?: string;
 }
