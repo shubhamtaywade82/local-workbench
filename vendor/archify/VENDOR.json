@@ -1,0 +1,24 @@
+{
+  "skillId": "archify",
+  "version": "3.2.0",
+  "channel": "stable",
+  "source": "https://github.com/tt-a1i/archify",
+  "commit": "a4065941f12be7967436261d9934784e381d423c",
+  "license": "Apache-2.0 (see LICENSE, NOTICE, THIRD_PARTY_NOTICES.md)",
+  "entries": [
+    "bin",
+    "renderers",
+    "scripts",
+    "explainer",
+    "schemas",
+    "locales",
+    "assets",
+    "brand-marks",
+    "package.json",
+    "skill-release.json",
+    "LICENSE",
+    "LICENSE-MIT",
+    "NOTICE",
+    "THIRD_PARTY_NOTICES.md"
+  ]
+}
