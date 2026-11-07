@@ -19,11 +19,7 @@ import { AiAssistant } from "@/features/workbench/ai-assistant/ai-assistant";
 import { CommandPalette } from "@/features/workbench/command-palette/command-palette";
 import { StatusBar } from "@/features/workbench/status-bar/status-bar";
 import { WelcomeOverlay } from "@/features/workbench/shell/welcome-overlay";
-import {
-  openFileFromWorkspace,
-  useWorkspaceController,
-} from "@/platform/filesystem/use-workspace-controller";
-import { getDesktopBridge } from "@/platform/electron/bridge";
+import { useWorkspaceController } from "@/platform/filesystem/use-workspace-controller";
 import { ensureAdaptersRegistered } from "@/documents/bootstrap";
 import { useWorkbench } from "@/features/workbench/store";
 import { loadSettings, saveSettings, listRecentWorkspaces } from "@/platform/persistence/persistence";
@@ -50,27 +46,9 @@ export function WorkbenchShell() {
   // Boot: register adapters, load settings, check if first visit
   useEffect(() => {
     let cancelled = false;
-
-    // Desktop shell commands: the File menu's Open Folder, and a file passed on
-    // the command line while the window is already open. Registered before the
-    // async boot so no early command is missed.
-    getDesktopBridge()?.onCommand((command) => {
-      if (command.kind === "open-folder") {
-        void controller.openLocalDirectory();
-        return;
-      }
-      const fs = controller.getFs();
-      if (!fs) return;
-      openFileFromWorkspace(fs, command.path).catch((err: unknown) =>
-        window.alert(`Could not open ${command.path}: ${(err as Error).message}`)
-      );
-    });
-
     (async () => {
       await ensureAdaptersRegistered();
       const settings = await loadSettings();
-      // Set by the desktop launcher when the window was opened on a folder.
-      const launch = (await getDesktopBridge()?.getLaunchTarget()) ?? null;
       if (cancelled) return;
       if (settings) {
         setTheme(settings.theme);
@@ -83,12 +61,10 @@ export function WorkbenchShell() {
       const recent = await listRecentWorkspaces();
       const isFirstVisit = !settings && recent.length === 0;
       if (!cancelled) {
-        setShowWelcome(isFirstVisit && !launch);
+        setShowWelcome(isFirstVisit);
         setBooted(true);
-        if (launch) {
-          await controller.openDesktopWorkspace(launch);
-        } else if (!isFirstVisit) {
-          // Only auto-open sample for returning users
+        // Only auto-open sample for returning users
+        if (!isFirstVisit) {
           await controller.openSampleWorkspace();
         }
       }

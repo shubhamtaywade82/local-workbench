@@ -16,10 +16,7 @@ import { EditorEmptyState } from "./editor-empty-state";
 import type { Diagnostic } from "@/documents/core/types";
 
 const MonacoEditor = dynamic(
-  () =>
-    import("./monaco-setup")
-      .then(() => import("@monaco-editor/react"))
-      .then((m) => m.default),
+  () => import("@monaco-editor/react").then((m) => m.default),
   {
     ssr: false,
     loading: () => (
