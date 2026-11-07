@@ -14,6 +14,8 @@ import { useDebouncedWithPending } from "@/features/workbench/hooks";
 import { documentRegistry } from "@/documents/core/registry";
 import { EditorEmptyState } from "./editor-empty-state";
 import type { Diagnostic } from "@/documents/core/types";
+import { registerEditor } from "@/features/workbench/editor/editor-bridge";
+import { useBreakpoint } from "@/lib/hooks/use-breakpoint";
 
 const MonacoEditor = dynamic(
   () => import("@monaco-editor/react").then((m) => m.default),
@@ -26,6 +28,14 @@ const MonacoEditor = dynamic(
     ),
   }
 );
+
+/** The edit operations the assistant needs from the Monaco editor. */
+type MonacoEditEditor = {
+  getModel: () => { getFullModelRange: () => unknown } | null;
+  getSelection: () => { isEmpty: () => boolean; startLineNumber: number; endLineNumber: number; startColumn: number; endColumn: number } | null;
+  pushUndoStop: () => void;
+  executeEdits: (source: string, edits: { range: unknown; text: string; forceMoveMarkers: boolean }[]) => boolean;
+};
 
 // Type alias for Monaco editor instance + namespace.
 type MonacoEditorInstance = {
@@ -127,6 +137,35 @@ export function EditorPane() {
     }
   }, [debouncedText, session, setDiagnostics, setArchifyDiagnostics]);
 
+  // Lets the assistant edit this document through the editor (undoable) and read its selection.
+  useEffect(() => {
+    if (!session) return;
+    const path = session.path;
+    return registerEditor({
+      path,
+      replaceAll: (text) => {
+        const editor = editorRef.current as unknown as MonacoEditEditor | null;
+        const range = editor?.getModel()?.getFullModelRange();
+        if (!editor || range === undefined) return false;
+        editor.pushUndoStop();
+        const applied = editor.executeEdits("ai-assistant", [{ range, text, forceMoveMarkers: true }]);
+        editor.pushUndoStop();
+        return applied;
+      },
+      selection: () => {
+        const editor = editorRef.current as unknown as MonacoEditEditor | null;
+        const selection = editor?.getSelection();
+        if (!selection || selection.isEmpty()) return null;
+        return {
+          startLine: selection.startLineNumber,
+          endLine: selection.endLineNumber,
+          startColumn: selection.startColumn,
+          endColumn: selection.endColumn,
+        };
+      },
+    });
+  }, [session?.path]);
+
   // When the active session's draftText changes externally (AI fix, revert,
   // reload-from-disk) and Monaco's value is out of date, sync it.
   useEffect(() => {
@@ -139,6 +178,8 @@ export function EditorPane() {
     lastPushedRef.current = session.draftText;
   }, [session?.draftText, session?.path, session]);
 
+  // A phone has no room for a gutter, so line numbers, folding and glyphs go and long lines wrap.
+  const phone = useBreakpoint() === "phone";
   const options = useMemo(
     () => ({
       automaticLayout: true,
@@ -146,7 +187,10 @@ export function EditorPane() {
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       tabSize: 2,
-      wordWrap: "off" as const,
+      wordWrap: phone ? ("on" as const) : ("off" as const),
+      lineNumbers: phone ? ("off" as const) : ("on" as const),
+      folding: !phone,
+      glyphMargin: !phone,
       smoothScroll: false,
       cursorBlinking: "smooth" as const,
       cursorSmoothCaretAnimation: "on" as const,
@@ -158,7 +202,7 @@ export function EditorPane() {
       inlineSuggest: { enabled: false },
       quickSuggestions: false,
     }),
-    []
+    [phone]
   );
 
   const theme = useWorkbench((s) => s.theme);
