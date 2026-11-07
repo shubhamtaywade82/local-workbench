@@ -8,7 +8,8 @@ A powerful, local-first document editor with AI assistance, built with Next.js 1
 - **Live Preview**: Real-time rendered preview for all supported formats
 - **File Explorer**: Tree view with lazy loading, workspace switching, and recent workspaces
 - **Editor Tabs**: Monaco-based editor with dirty indicators and keyboard shortcuts
-- **AI Assistant**: Chat + 5 structured actions (Explain, Fix, Convert, Diagram, Improve)
+- **AI Assistant**: Streaming chat plus Explain, Fix, Convert, Improve, Diagram, Archify diagram and architecture review. Edits arrive as reviewable proposals, and nothing is written until you apply one
+- **Responsive layouts**: three panes on desktop, the assistant as a sheet on tablets, and Editor / Preview tabs with sheets on phones
 - **Command Palette**: Fuzzy file search and actions (⌘/Ctrl + P)
 - **Diagnostics Panel**: Problems view with severity levels
 - **Archify live diagrams**: ten Archify diagram types rendered live from their JSON IR (see below)
@@ -94,7 +95,7 @@ Requires [Ollama](https://ollama.ai) running locally. Pull a model first:
 ollama pull llama3.1:8b
 ```
 
-The integration uses `@nemesis-oss/ollama-sdk`'s `OpenAICompatClient` (`/v1/chat/completions`) behind the same typed `ChatCompletionsClient` used for OpenAI (`src/lib/ai/server.ts`), so all AI actions (chat, explain, fix, convert, diagram, improve) work identically. Note that `OpenAICompatClient` is **not** shape-compatible with the `openai` SDK (it exposes `createChatCompletion`, not `chat.completions.create`); the adapter in `server.ts` bridges the two.
+The integration uses `@nemesis-oss/ollama-sdk`'s `OpenAICompatClient` (`/v1/chat/completions`) behind the same typed `ChatCompletionsClient` used for OpenAI (`src/lib/ai/server.ts`), so every AI task (chat, explain, fix, convert, improve, diagram, Archify diagram, architecture review) works identically. Note that `OpenAICompatClient` is **not** shape-compatible with the `openai` SDK (it exposes `createChatCompletion`, not `chat.completions.create`); the adapter in `server.ts` bridges the two.
 
 For multiple Ollama hosts / Ollama Cloud keys with failover, see `OLLAMA_ENDPOINTS` in `.env.example` (higher `priority` is tried first). `OLLAMA_TIMEOUT_MS` (default `120000`) bounds the whole request, including the full streamed response.
 
@@ -107,7 +108,7 @@ With `AI_GENERATIVE_UI=1`, chat and **Explain** answers may include interactive 
 - **Single contract:** `src/lib/ai/generative-ui/components.ts` defines names, descriptions and zod prop schemas once. The server builds the system prompt from it (`prompt.ts`, no React), and the client attaches shadcn renderers (`src/features/workbench/ai-assistant/generative-ui/library.tsx`). No CLI-generated spec to keep in sync.
 - **Edits stay review-only:** `ProposedEdit` never writes. Its *Review diff* button emits a `workbench.propose_edit` action, which fills the existing diff-then-Apply flow for the document the message was generated against. All other action types (`OpenUrl`, …) are ignored.
 - **Only `openui-lang` fences are UI:** ```` ```json ````/```` ```yaml ```` blocks stay text (`segments.ts`). A finished block that parses to nothing falls back to showing its source.
-- **Opt-in on both sides:** the server flag gates the prompt; the client requests it and the response header `X-Generative-UI` confirms it. With the flag off, prompts and responses are unchanged.
+- **Opt-in on both sides:** the server flag gates the prompt; the client asks for it per request, and the `generativeUi` field of the text result confirms it was used. With the flag off, prompts and responses are unchanged.
 - **Cost:** the component prompt is about 1.4k tokens. On Ollama, raise the context window on the server (e.g. `OLLAMA_CONTEXT_LENGTH=8192`), or long documents will be truncated silently.
 - **Measure before enabling:** `bun run eval:genui -- --runs 3 --min-rate 0.8` runs the real prompt against your configured model and reports the clean-parse rate.
 - **Not used:** OpenUI Gateway and Autofix (paid Thesys cloud, would send prompts off-box) and `@openuidev/react-ui` (requires zustand 4; this app uses zustand 5).
@@ -144,7 +145,7 @@ Not watched: changes made outside the workbench appear after reopening the folde
 ```
 src/
 ├── app/
-│   ├── api/ai/              # AI backend routes (server-side)
+│   ├── api/ai/              # /api/ai/task (streamed AI tasks) and /api/ai/models (provider status)
 │   ├── api/archify/render/  # Archify live-diagram render (server-side)
 │   ├── layout.tsx
 │   └── page.tsx             # Entry point, loads WorkbenchShell
@@ -153,18 +154,21 @@ src/
 │   ├── adapters/            # Format adapters (markdown, json, yaml, toml, mermaid, xml, toon)
 │   └── bootstrap.ts         # Registers all adapters on client
 ├── features/workbench/
-│   ├── shell/               # WorkbenchShell, ThemeProvider, WorkspaceSwitcher
+│   ├── shell/               # WorkbenchShell (desktop, tablet and phone layouts), header, WorkspaceSwitcher
 │   ├── file-explorer/       # Lazy tree + workspace switcher
 │   ├── tabs/                # Editor tabs with dirty indicators
 │   ├── editor/              # Monaco wrapper (dynamic, ssr:false)
 │   ├── preview/             # PreviewPane dispatching to renderers
 │   ├── diagnostics/         # Problems panel
-│   ├── ai-assistant/        # Chat + 5 structured actions
+│   ├── ai/                  # Assistant store and controller, document port, workspace snapshot
+│   ├── ai-assistant/        # Panel, thread, composer, and proposal / Archify / review views
+│   ├── dialogs/             # Confirm and prompt dialogs (replace native confirm and prompt)
 │   ├── command-palette/     # Cmdk fuzzy search + actions
 │   ├── status-bar/          # Sticky footer + workspace switcher
-│   ├── store.ts             # Zustand store (tabs, sessions, diagnostics, AI)
+│   ├── store.ts             # Zustand store (tabs, sessions, diagnostics, layout)
 │   └── hooks.ts             # useDebounced / useDebouncedWithPending
 ├── lib/preview-renderers/   # Markdown / StructuredData / Mermaid / XmlTree / TextFallback
+├── lib/ai/                  # Task contract, runner, parsers, SSE endpoint (tasks/), browser client (client/), provider clients (server.ts), generative UI (generative-ui/)
 ├── lib/archify/             # Archify contract, detection, render service (server-only parts marked)
 ├── platform/
 │   ├── filesystem/          # WorkspaceFileSystem contract + In-memory & FSA impls
@@ -182,17 +186,48 @@ src/
 | `⌘/Ctrl + Shift + A` | Toggle AI Assistant panel |
 | `⌘/Ctrl + S` | Save active file |
 
-## AI Assistant Actions
+## Responsive Layouts
 
-Click action chips in the AI panel:
+| Width | Layout |
+| --- | --- |
+| 1280 px and wider | Files, editor, preview and assistant side by side. Each pane resizes, and the sizes are remembered in the browser. |
+| 768 to 1279 px | Files, editor and preview side by side. The assistant opens as a sheet. |
+| Under 768 px | One pane at a time, switched with the Editor and Preview tabs. Files, problems and the assistant open as sheets. |
 
-- **Explain** — Describes current document + flags ambiguity
-- **Fix** — Proposes corrected version (review diff, click Apply/Discard)
-- **Convert** — Convert between JSON/YAML/TOML/XML/TOON/Markdown
-- **Diagram** — Generate Mermaid diagram from description
-- **Improve** — Rewrite Markdown preserving structure & code blocks
+The keyboard shortcuts work at every width. On phones the status bar shows problem counts as icons beside their numbers.
 
-Or chat directly in the textbox — responses stream via SSE.
+## AI Assistant
+
+The assistant sends every request to one endpoint, `POST /api/ai/task`. The document and workspace text reach the model as delimited data, and the prompt tells the model to treat them as data, not instructions.
+
+- **Chat** streams its answer with the open document as context. Long documents are windowed to 48,000 characters: the first 20 lines stay, and a window around the cursor or the first problem fills the rest. When the history is full, the oldest turns drop first.
+- **Explain** describes the open document and flags ambiguous parts.
+- **Fix** proposes a corrected document. It opens as a proposal with a diff, Apply and Discard.
+- **Improve** rewrites Markdown in a concise, detailed or friendly tone, keeping its structure and code blocks.
+- **Convert** targets JSON, JSONC, JSON5, YAML, TOML, TOON, XML or Markdown. A supported pair converts in-process and is labelled "No model used". Any other pair goes to the model, and the result is labelled as model output. The result is saved as a new file with the target extension, and the source is left as it is.
+- **Diagram** writes a Mermaid flowchart, sequence, state, ER or class diagram to `diagrams/<slug>.mmd`.
+- **Archify diagram** generates an Archify IR document for one of the ten diagram types. Each attempt is checked by Archify's delivery gate, and the gate's messages go back to the model, for up to three attempts. Save as a new file keeps a diagram that still fails the gate, and its preview shows the failure. Replacing the open document needs a diagram that passed the gate, and a confirmation.
+- **Architecture review** reads a bounded workspace snapshot (60 files, 4,000 characters each, 120,000 in total) and returns up to six candidates. Each candidate is rated Strong, Worth exploring or Speculative, and carries its files, problem, solution, wins, and before and after Mermaid diagrams. **Explore** sends a candidate to the chat as a follow-up.
+
+Proposals and safety:
+
+- **Apply** writes through the editor, so **Ctrl+Z** undoes it.
+- If the document changed after the proposal was made, Apply asks before it replaces the newer text.
+- **Stop** cancels the run. The partial answer stays, marked as stopped.
+- Without a provider, the panel says why, and the rest of the workbench works.
+
+## AI Task API
+
+`POST /api/ai/task` takes an `application/json` body of at most 6 MiB. Its `task` field is one of `chat`, `explain`, `fix`, `convert`, `improve-docs`, `generate-diagram`, `archify-diagram` or `architecture-review`. A request that fails validation gets HTTP 400 (`invalid-request`, with an `issues` list) or 413 (`too-large`) before anything runs. An accepted request streams `text/event-stream` frames, each one a `data: {json}` line:
+
+| Event | Fields | Meaning |
+| --- | --- | --- |
+| `status` | `message` | Progress, such as a conversion going to the model. |
+| `delta` | `text` | A chunk of streamed text. |
+| `result` | `result` | The final value: `text`, `edit`, `archify` or `review`. |
+| `error` | `code`, `message` | The run failed. `code` is `provider-unavailable`, `provider-error`, `runtime-unavailable`, `unparseable-output` or `internal`. |
+
+A closed connection cancels the run, so no model call outlives the page that asked for it. `GET /api/ai/models` reports the configured provider, whether it is available, the reason when it is not, and the models it offers.
 
 ## Archify Live Diagrams
 
@@ -268,10 +303,10 @@ The `next.config.ts` has `output: "standalone"` for self-contained deployment.
 
 | Issue | Solution |
 | ------- | ---------- |
-| AI shows "offline" | Configure `OPENAI_API_KEY` in the server environment |
+| AI shows "offline" | The assistant panel shows the reason. Set `OPENAI_API_KEY` (or `AI_PROVIDER=ollama`) in the server environment |
 | "Open folder…" disabled | Use Chrome/Edge desktop; Firefox/Safari use sample workspace |
 | Dev server dies on terminal close | Use `nohup bun run dev > dev.log 2>&1 & disown` or `tmux`/`screen` |
-| Monaco loads forever | Check network; for offline, copy `monaco-editor/min/vs` to `public/vs` |
+| Monaco loads forever | Monaco is fetched from cdn.jsdelivr.net at runtime, so the editor needs network access. There is no bundled offline copy yet |
 | Hot reload stuck | Restart dev server; clear cache: `rm -rf .next` |
 
 ## License
