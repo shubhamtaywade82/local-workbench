@@ -5,7 +5,7 @@
  * Uses the exact prompt, client (AI_PROVIDER / OLLAMA_* / OPENAI_* env) and
  * parser the app uses, so results transfer directly.
  *
- *   OPENUI_TELEMETRY_DISABLED=1 AI_PROVIDER=ollama OLLAMA_MODEL=llama3.1:8b \
+ *   OPENUI_TELEMETRY_DISABLED=1 AI_PROVIDER=ollama OLLAMA_MODEL=beam:cloud \
  *     bun scripts/genui-eval.ts --runs 3 --min-rate 0.8
  *
  * Exit code 1 when the clean-parse rate of UI-expected cases is below --min-rate.

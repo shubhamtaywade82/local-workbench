@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { AI_ACTIONS, resolveActionModel, type AiAction } from "./action-models";
 
-const FALLBACK = "llama3.1:8b";
+const FALLBACK = "beam:cloud";
 
 const KEYS: Readonly<Record<AiAction, string>> = {
   chat: "AI_MODEL_CHAT",
@@ -34,7 +34,7 @@ describe("resolveActionModel", () => {
 
   test.each([
     "minicpm5-coding-agent",
-    "llama3.1:8b",
+    "beam:cloud",
     "openbmb/minicpm5-2b",
     "gpt-4o-mini",
     "qwen2.5-coder:7b-instruct-q4_K_M",

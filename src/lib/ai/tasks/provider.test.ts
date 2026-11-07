@@ -132,7 +132,7 @@ describe("parseOllamaEndpoints", () => {
       OLLAMA_API_KEY_1: "key-cloud",
       OLLAMA_API_KEY_1_NAME: "beam-cloud-key",
       OLLAMA_API_KEY_1_BASE_URL: "https://ollama.com",
-      OLLAMA_API_KEY_1_MODELS: "beam:cloud,llama3.1:8b",
+      OLLAMA_API_KEY_1_MODELS: "beam:cloud,beam:cloud",
       OLLAMA_API_KEY_1_PRIORITY: "10",
     });
     expect(endpoints).toEqual([
@@ -141,7 +141,7 @@ describe("parseOllamaEndpoints", () => {
         baseUrl: "https://ollama.com",
         apiKey: "key-cloud",
         priority: 10,
-        models: ["beam:cloud", "llama3.1:8b"],
+        models: ["beam:cloud", "beam:cloud"],
       },
     ]);
   });

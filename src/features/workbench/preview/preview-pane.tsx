@@ -92,7 +92,10 @@ function PreviewContent({ preview }: { preview: PreviewModel }) {
       return (
         <iframe
           title="HTML preview"
-          sandbox="allow-same-origin"
+          sandbox="allow-scripts allow-downloads"
+          allow="clipboard-write"
+          allowFullScreen
+          referrerPolicy="no-referrer"
           srcDoc={preview.source}
           className="h-full w-full border-0 bg-white"
         />

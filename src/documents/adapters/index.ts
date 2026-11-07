@@ -9,3 +9,4 @@ export { tomlAdapter } from "./toml/toml";
 export { mermaidAdapter } from "./mermaid/mermaid";
 export { xmlAdapter } from "./xml/xml";
 export { toonAdapter, parseToon, toonStringify } from "./toon/toon";
+export { htmlAdapter } from "./html/html";

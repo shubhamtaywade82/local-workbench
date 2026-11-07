@@ -16,6 +16,7 @@ export async function ensureAdaptersRegistered(): Promise<void> {
   const { jsonAdapter } = await import("@/documents/adapters/json/json");
   const { yamlAdapter } = await import("@/documents/adapters/yaml/yaml");
   const { tomlAdapter } = await import("@/documents/adapters/toml/toml");
+  const { htmlAdapter } = await import("@/documents/adapters/html/html");
   documentRegistry.register(markdownAdapter);
   documentRegistry.register(jsonAdapter);
   // Content-matched: claims .json documents that declare an Archify diagram_type.
@@ -23,6 +24,7 @@ export async function ensureAdaptersRegistered(): Promise<void> {
   documentRegistry.register(archifyAdapter);
   documentRegistry.register(yamlAdapter);
   documentRegistry.register(tomlAdapter);
+  documentRegistry.register(htmlAdapter);
 
   // Dynamic adapters — wrapped in try/catch so a missing module doesn't break
   // the editor.

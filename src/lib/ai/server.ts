@@ -40,7 +40,7 @@ export function getAiProvider(): AiProvider {
 export function getDefaultModel(): string {
   const provider = getAiProvider();
   if (provider === "ollama") {
-    return process.env.OLLAMA_MODEL || "llama3.1:8b";
+    return process.env.OLLAMA_MODEL || "beam:cloud";
   }
   return process.env.OPENAI_MODEL || "gpt-4o-mini";
 }

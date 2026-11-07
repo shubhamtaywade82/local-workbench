@@ -351,6 +351,9 @@ export function fileIconColor(path: string): string | undefined {
       return "text-fuchsia-500";
     case "toon":
       return "text-violet-500";
+    case "html":
+    case "htm":
+      return "text-orange-600";
     default:
       return undefined;
   }

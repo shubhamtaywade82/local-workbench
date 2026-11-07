@@ -20,26 +20,26 @@ A powerful, local-first document editor with AI assistance, built with Next.js 1
 
 ## Tech Stack
 
-| Layer | Technology |
-| ------- | ------------ |
-| Framework | Next.js 16 (App Router, Turbopack) |
-| Runtime | Bun (recommended) / Node.js 22+ |
-| Language | TypeScript 5 |
-| Styling | Tailwind CSS 4 + shadcn/ui |
-| Editor | Monaco Editor (React wrapper) |
-| State | Zustand |
-| Database | Prisma + SQLite |
-| AI SDK | OpenAI Node.js SDK + @nemesis-oss/ollama-sdk (OpenAI-compatible Chat Completions API) |
-| File System | File System Access API + in-memory fallback |
+| Layer       | Technology                                                                            |
+|-------------|---------------------------------------------------------------------------------------|
+| Framework   | Next.js 16 (App Router, Turbopack)                                                    |
+| Runtime     | Bun (recommended) / Node.js 22+                                                       |
+| Language    | TypeScript 5                                                                          |
+| Styling     | Tailwind CSS 4 + shadcn/ui                                                            |
+| Editor      | Monaco Editor (React wrapper)                                                         |
+| State       | Zustand                                                                               |
+| Database    | Prisma + SQLite                                                                       |
+| AI SDK      | OpenAI Node.js SDK + @nemesis-oss/ollama-sdk (OpenAI-compatible Chat Completions API) |
+| File System | File System Access API + in-memory fallback                                           |
 
 ## Prerequisites
 
-| Tool | Version | Notes |
-| ------ | --------- | ------- |
-| Node.js | 22+ | Required by the OpenAI SDK |
-| Bun | 1.3+ | Recommended for fastest installs |
-| Git | Any | For cloning |
-| Chrome/Edge | Recent | Required for File System Access API |
+| Tool        | Version | Notes                               |
+|-------------|---------|-------------------------------------|
+| Node.js     | 22+     | Required by the OpenAI SDK          |
+| Bun         | 1.3+    | Recommended for fastest installs    |
+| Git         | Any     | For cloning                         |
+| Chrome/Edge | Recent  | Required for File System Access API |
 
 ## Quick Start
 
@@ -87,13 +87,13 @@ Works with any OpenAI-compatible endpoint (OpenAI, Azure, Together, Groq, Firewo
 ```dotenv
 AI_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.1:8b
+OLLAMA_MODEL=beam:cloud
 ```
 
 Requires [Ollama](https://ollama.ai) running locally. Pull a model first:
 
 ```bash
-ollama pull llama3.1:8b
+ollama pull beam:cloud
 ```
 
 The integration uses `@nemesis-oss/ollama-sdk`'s `OpenAICompatClient` (`/v1/chat/completions`) behind the same typed `ChatCompletionsClient` used for OpenAI (`src/lib/ai/server.ts`), so every AI task (chat, explain, fix, convert, improve, diagram, Archify diagram, architecture review) works identically. Note that `OpenAICompatClient` is **not** shape-compatible with the `openai` SDK (it exposes `createChatCompletion`, not `chat.completions.create`); the adapter in `server.ts` bridges the two.
@@ -108,14 +108,14 @@ Each AI action can run on its own model. Set `AI_MODEL_CHAT`, `AI_MODEL_FIX`, `A
 
 Example with the MiniCPM5 variants from [agent-tui](https://github.com/shubhamtaywade82/agent-tui) (`supervisor/modelfiles/`, built with `supervisor/scripts/seed-models.sh`):
 
-| Action | Variable | Suggested variant | Why |
-|---|---|---|---|
-| Chat | `AI_MODEL_CHAT` | `minicpm5-reasoning` | Multi-step answers; no stop sequences |
-| Fix | `AI_MODEL_FIX` | `minicpm5-coding-agent` | 16K context and 4096 output tokens for whole-file edits |
-| Explain | `AI_MODEL_EXPLAIN` | `minicpm5-summarizer` | Condensed explanations |
-| Convert | `AI_MODEL_CONVERT` | `minicpm5-coding-agent` | Code and format conversion |
-| Diagram | `AI_MODEL_DIAGRAM` | `minicpm5-coding-agent` | Mermaid is code |
-| Improve docs | `AI_MODEL_IMPROVE` | `minicpm5-low-repetition` | Prose; compare with `minicpm5-coding-agent` |
+| Action       | Variable           | Suggested variant         | Why                                                     |
+|--------------|--------------------|---------------------------|---------------------------------------------------------|
+| Chat         | `AI_MODEL_CHAT`    | `minicpm5-reasoning`      | Multi-step answers; no stop sequences                   |
+| Fix          | `AI_MODEL_FIX`     | `minicpm5-coding-agent`   | 16K context and 4096 output tokens for whole-file edits |
+| Explain      | `AI_MODEL_EXPLAIN` | `minicpm5-summarizer`     | Condensed explanations                                  |
+| Convert      | `AI_MODEL_CONVERT` | `minicpm5-coding-agent`   | Code and format conversion                              |
+| Diagram      | `AI_MODEL_DIAGRAM` | `minicpm5-coding-agent`   | Mermaid is code                                         |
+| Improve docs | `AI_MODEL_IMPROVE` | `minicpm5-low-repetition` | Prose; compare with `minicpm5-coding-agent`             |
 
 - **Do not assign code-returning actions** to `minicpm5-analyst`, `minicpm5-long-context`, `minicpm5-toolagent` or `minicpm5-tool-agent`. Their Modelfiles stop generation at a code fence (```` ``` ````), which cuts fenced code off.
 - **Do not assign `minicpm5-cloud-escalation`.** It prepares prompts for a cloud model, and this app keeps prompts on the machine.
@@ -146,11 +146,11 @@ bun run dev            # then open http://localhost:3000 in your Windows browser
 
 The roots appear under **Server folders** in the workspace switcher and reopen from **Recent** without a picker or permission prompt. Files are read and written natively in WSL; saves are atomic (temp file + rename).
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `WORKSPACE_ROOTS` | unset (feature off) | Comma-separated absolute directories. Only files inside these are reachable. |
-| `WORKSPACE_MAX_FILE_BYTES` | `5242880` | Largest file that can be opened or saved. |
-| `WORKSPACE_ALLOWED_HOSTS` | — | Extra `Host` names to accept (by default only `localhost`, `127.0.0.1`, `[::1]`). |
+| Variable                   | Default             | Purpose                                                                           |
+|----------------------------|---------------------|-----------------------------------------------------------------------------------|
+| `WORKSPACE_ROOTS`          | unset (feature off) | Comma-separated absolute directories. Only files inside these are reachable.      |
+| `WORKSPACE_MAX_FILE_BYTES` | `5242880`           | Largest file that can be opened or saved.                                         |
+| `WORKSPACE_ALLOWED_HOSTS`  | —                   | Extra `Host` names to accept (by default only `localhost`, `127.0.0.1`, `[::1]`). |
 
 **Security model** (`src/lib/server-fs/`): this gives a web page read/write access to your disk, so the API is locked down.
 - Off unless `WORKSPACE_ROOTS` is set: the `/api/fs` routes return 404.
@@ -198,21 +198,21 @@ src/
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action |
-| ---------- | -------- |
-| `⌘/Ctrl + P` | Open command palette |
-| `⌘/Ctrl + B` | Toggle Explorer panel |
-| `⌘/Ctrl + J` | Toggle Diagnostics panel |
+| Shortcut             | Action                    |
+|----------------------|---------------------------|
+| `⌘/Ctrl + P`         | Open command palette      |
+| `⌘/Ctrl + B`         | Toggle Explorer panel     |
+| `⌘/Ctrl + J`         | Toggle Diagnostics panel  |
 | `⌘/Ctrl + Shift + A` | Toggle AI Assistant panel |
-| `⌘/Ctrl + S` | Save active file |
+| `⌘/Ctrl + S`         | Save active file          |
 
 ## Responsive Layouts
 
-| Width | Layout |
-| --- | --- |
+| Width             | Layout                                                                                                             |
+|-------------------|--------------------------------------------------------------------------------------------------------------------|
 | 1280 px and wider | Files, editor, preview and assistant side by side. Each pane resizes, and the sizes are remembered in the browser. |
-| 768 to 1279 px | Files, editor and preview side by side. The assistant opens as a sheet. |
-| Under 768 px | One pane at a time, switched with the Editor and Preview tabs. Files, problems and the assistant open as sheets. |
+| 768 to 1279 px    | Files, editor and preview side by side. The assistant opens as a sheet.                                            |
+| Under 768 px      | One pane at a time, switched with the Editor and Preview tabs. Files, problems and the assistant open as sheets.   |
 
 The keyboard shortcuts work at every width. On phones the status bar shows problem counts as icons beside their numbers.
 
@@ -240,12 +240,12 @@ Proposals and safety:
 
 `POST /api/ai/task` takes an `application/json` body of at most 6 MiB. Its `task` field is one of `chat`, `explain`, `fix`, `convert`, `improve-docs`, `generate-diagram`, `archify-diagram` or `architecture-review`. A request that fails validation gets HTTP 400 (`invalid-request`, with an `issues` list) or 413 (`too-large`) before anything runs. An accepted request streams `text/event-stream` frames, each one a `data: {json}` line:
 
-| Event | Fields | Meaning |
-| --- | --- | --- |
-| `status` | `message` | Progress, such as a conversion going to the model. |
-| `delta` | `text` | A chunk of streamed text. |
-| `result` | `result` | The final value: `text`, `edit`, `archify` or `review`. |
-| `error` | `code`, `message` | The run failed. `code` is `provider-unavailable`, `provider-error`, `runtime-unavailable`, `unparseable-output` or `internal`. |
+| Event    | Fields            | Meaning                                                                                                                        |
+|----------|-------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| `status` | `message`         | Progress, such as a conversion going to the model.                                                                             |
+| `delta`  | `text`            | A chunk of streamed text.                                                                                                      |
+| `result` | `result`          | The final value: `text`, `edit`, `archify` or `review`.                                                                        |
+| `error`  | `code`, `message` | The run failed. `code` is `provider-unavailable`, `provider-error`, `runtime-unavailable`, `unparseable-output` or `internal`. |
 
 A closed connection cancels the run, so no model call outlives the page that asked for it. `GET /api/ai/models` reports the configured provider, whether it is available, the reason when it is not, and the models it offers.
 
@@ -261,11 +261,11 @@ Open an [Archify](https://github.com/tt-a1i/archify) IR document (a `.json` file
 
 **How it works.** `POST /api/archify/render` receives the editor draft (never a file path) and runs Archify's own `deliver --json` pipeline, the same gate `archify preview` uses, in a private temporary directory. The runtime is the vendored Archify 3.2.0 tree in `vendor/archify`, which runs under Node.js 18 or later (`node` on `PATH` when the server itself runs under Bun). Archify's update check is disabled for these renders. The browser keeps the last verified revision; the server caches identical renders.
 
-| Setting | Default | Purpose |
-|---|---|---|
-| `ARCHIFY_RENDER_TIMEOUT_MS` | `20000` | Wall-clock budget for one render (minimum 1000). |
-| Document size | 1 MiB | Larger documents are refused before Archify starts. |
-| Concurrency | 2 running, 8 queued | Further renders are answered `busy` and retried on the next edit. |
+| Setting                     | Default             | Purpose                                                           |
+|-----------------------------|---------------------|-------------------------------------------------------------------|
+| `ARCHIFY_RENDER_TIMEOUT_MS` | `20000`             | Wall-clock budget for one render (minimum 1000).                  |
+| Document size               | 1 MiB               | Larger documents are refused before Archify starts.               |
+| Concurrency                 | 2 running, 8 queued | Further renders are answered `busy` and retried on the next edit. |
 
 **Not supported in the live preview.**
 - Explainer documents (Archify's Markdown-based explainer type). Use the Archify CLI.
@@ -283,14 +283,14 @@ After syncing, run `bun run test`. The archify tests render all ten fixtures thr
 
 ## Browser Support
 
-| Browser | Sample Workspace | Open Local Folder |
-| --------- | ------------------ | ------------------- |
-| Chrome Desktop | ✅ | ✅ |
-| Edge Desktop | ✅ | ✅ |
-| Opera Desktop | ✅ | ✅ |
-| Firefox | ✅ | ❌ |
-| Safari | ✅ | ❌ |
-| Mobile Chrome | ✅ | ❌ |
+| Browser        | Sample Workspace | Open Local Folder |
+|----------------|------------------|-------------------|
+| Chrome Desktop | ✅                | ✅                 |
+| Edge Desktop   | ✅                | ✅                 |
+| Opera Desktop  | ✅                | ✅                 |
+| Firefox        | ✅                | ❌                 |
+| Safari         | ✅                | ❌                 |
+| Mobile Chrome  | ✅                | ❌                 |
 
 Without FSA support, "Open folder…" is disabled — sample workspace still works.
 
@@ -321,13 +321,13 @@ The `next.config.ts` has `output: "standalone"` for self-contained deployment.
 
 ## Troubleshooting
 
-| Issue | Solution |
-| ------- | ---------- |
-| AI shows "offline" | The assistant panel shows the reason. Set `OPENAI_API_KEY` (or `AI_PROVIDER=ollama`) in the server environment |
-| "Open folder…" disabled | Use Chrome/Edge desktop; Firefox/Safari use sample workspace |
-| Dev server dies on terminal close | Use `nohup bun run dev > dev.log 2>&1 & disown` or `tmux`/`screen` |
-| Monaco loads forever | Monaco is fetched from cdn.jsdelivr.net at runtime, so the editor needs network access. There is no bundled offline copy yet |
-| Hot reload stuck | Restart dev server; clear cache: `rm -rf .next` |
+| Issue                             | Solution                                                                                                                     |
+|-----------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| AI shows "offline"                | The assistant panel shows the reason. Set `OPENAI_API_KEY` (or `AI_PROVIDER=ollama`) in the server environment               |
+| "Open folder…" disabled           | Use Chrome/Edge desktop; Firefox/Safari use sample workspace                                                                 |
+| Dev server dies on terminal close | Use `nohup bun run dev > dev.log 2>&1 & disown` or `tmux`/`screen`                                                           |
+| Monaco loads forever              | Monaco is fetched from cdn.jsdelivr.net at runtime, so the editor needs network access. There is no bundled offline copy yet |
+| Hot reload stuck                  | Restart dev server; clear cache: `rm -rf .next`                                                                              |
 
 ## License
 
