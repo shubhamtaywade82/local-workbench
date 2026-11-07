@@ -129,6 +129,7 @@ let ollamaClient: OllamaClient | undefined;
 /** Generous default: the SDK timeout spans the whole stream, and local models are slow. */
 const DEFAULT_OLLAMA_TIMEOUT_MS = 120_000;
 const MAX_DISCRETE_ENDPOINTS = 10;
+const MAX_DISCRETE_KEYS = 20;
 
 function parsePositiveInt(value: string | undefined): number | undefined {
   if (value === undefined || value.trim() === "") return undefined;
@@ -171,58 +172,95 @@ function endpointFromJson(raw: unknown, index: number): OllamaEndpoint | undefin
   };
 }
 
-/**
- * Resolve Ollama endpoints from the environment, in order of precedence:
- *
- * 1. OLLAMA_ENDPOINTS — JSON array:
- *    [
- *      { "name": "ollama-1", "baseUrl": "http://localhost:11434", "apiKey": "key1", "priority": 10, "models": ["llama3.1:8b", "mistral"] },
- *      { "name": "ollama-2", "baseUrl": "http://ollama2:11434", "apiKey": "key2", "priority": 5 }
- *    ]
- *    `priority`: HIGHER is tried first (SDK semantics); equal priorities form a pool
- *    balanced by OLLAMA_ENDPOINT_STRATEGY.
- * 2. Discrete env vars OLLAMA_ENDPOINT_<N>_{NAME,BASE_URL,API_KEY,PRIORITY,MODELS}, N = 1..10.
- * 3. Single endpoint: OLLAMA_BASE_URL (default http://localhost:11434) + OLLAMA_API_KEY.
- *
- * Always returns at least one endpoint.
- */
-function parseOllamaEndpoints(): OllamaEndpoint[] {
-  const endpointsJson = process.env.OLLAMA_ENDPOINTS;
-  if (endpointsJson) {
-    try {
-      const parsed: unknown = JSON.parse(endpointsJson);
-      if (Array.isArray(parsed)) {
-        const endpoints = parsed
-          .map(endpointFromJson)
-          .filter((ep): ep is OllamaEndpoint => ep !== undefined);
-        if (endpoints.length > 0) return endpoints;
-      }
-      console.warn("[AI] OLLAMA_ENDPOINTS has no valid endpoints; falling back");
-    } catch (e) {
-      console.warn("[AI] Failed to parse OLLAMA_ENDPOINTS JSON:", e);
+function parseEndpointsJson(json: string | undefined): OllamaEndpoint[] {
+  if (!json) return [];
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (Array.isArray(parsed)) {
+      return parsed.map(endpointFromJson).filter((ep): ep is OllamaEndpoint => ep !== undefined);
     }
+    console.warn("[AI] OLLAMA_ENDPOINTS has no valid endpoints; falling back");
+  } catch (e) {
+    console.warn("[AI] Failed to parse OLLAMA_ENDPOINTS JSON:", e);
   }
+  return [];
+}
 
+function parseDiscreteEndpoints(env: Record<string, string | undefined>): OllamaEndpoint[] {
   const endpoints: OllamaEndpoint[] = [];
   for (let i = 1; i <= MAX_DISCRETE_ENDPOINTS; i++) {
-    const name = process.env[`OLLAMA_ENDPOINT_${i}_NAME`];
-    const baseUrl = process.env[`OLLAMA_ENDPOINT_${i}_BASE_URL`];
+    const name = env[`OLLAMA_ENDPOINT_${i}_NAME`];
+    const baseUrl = env[`OLLAMA_ENDPOINT_${i}_BASE_URL`];
     if (!name || !baseUrl) continue;
     endpoints.push({
       name,
       baseUrl,
-      apiKey: process.env[`OLLAMA_ENDPOINT_${i}_API_KEY`] || undefined,
-      priority: parseInteger(process.env[`OLLAMA_ENDPOINT_${i}_PRIORITY`]),
-      models: parseModelList(process.env[`OLLAMA_ENDPOINT_${i}_MODELS`]),
+      apiKey: env[`OLLAMA_ENDPOINT_${i}_API_KEY`] || undefined,
+      priority: parseInteger(env[`OLLAMA_ENDPOINT_${i}_PRIORITY`]),
+      models: parseModelList(env[`OLLAMA_ENDPOINT_${i}_MODELS`]),
+    });
+  }
+  return endpoints;
+}
+
+function parseDiscreteApiKeys(env: Record<string, string | undefined>, defaultBaseUrl: string): OllamaEndpoint[] {
+  const endpoints: OllamaEndpoint[] = [];
+  for (let i = 1; i <= MAX_DISCRETE_KEYS; i++) {
+    const key = env[`OLLAMA_API_KEY_${i}`]?.trim();
+    if (!key) continue;
+    endpoints.push({
+      name: env[`OLLAMA_API_KEY_${i}_NAME`]?.trim() || `ollama-key-${i}`,
+      baseUrl: env[`OLLAMA_API_KEY_${i}_BASE_URL`]?.trim() || defaultBaseUrl,
+      apiKey: key,
+      priority: parseInteger(env[`OLLAMA_API_KEY_${i}_PRIORITY`]) ?? 1,
+      models: parseModelList(env[`OLLAMA_API_KEY_${i}_MODELS`]),
     });
   }
   if (endpoints.length > 0) return endpoints;
 
+  const commaSeparated = (env.OLLAMA_API_KEYS || env.OLLAMA_API_KEY)?.trim();
+  if (commaSeparated && commaSeparated.includes(",")) {
+    const keys = commaSeparated.split(",").map((k) => k.trim()).filter(Boolean);
+    if (keys.length > 1) {
+      return keys.map((apiKey, idx) => ({
+        name: `ollama-key-${idx + 1}`,
+        baseUrl: defaultBaseUrl,
+        apiKey,
+        priority: 1,
+      }));
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Resolve Ollama endpoints from the environment, in order of precedence:
+ *
+ * 1. OLLAMA_ENDPOINTS — JSON array
+ * 2. Discrete env vars OLLAMA_ENDPOINT_<N>_{NAME,BASE_URL,API_KEY,PRIORITY,MODELS}, N = 1..10
+ * 3. Discrete API keys OLLAMA_API_KEY_<N> (with optional _NAME, _BASE_URL, _PRIORITY, _MODELS), N = 1..20,
+ *    or comma-separated OLLAMA_API_KEYS / OLLAMA_API_KEY
+ * 4. Single endpoint: OLLAMA_BASE_URL (default http://localhost:11434) + OLLAMA_API_KEY
+ *
+ * Always returns at least one endpoint.
+ */
+export function parseOllamaEndpoints(env: Record<string, string | undefined> = process.env): OllamaEndpoint[] {
+  const jsonEndpoints = parseEndpointsJson(env.OLLAMA_ENDPOINTS);
+  if (jsonEndpoints.length > 0) return jsonEndpoints;
+
+  const discreteEndpoints = parseDiscreteEndpoints(env);
+  if (discreteEndpoints.length > 0) return discreteEndpoints;
+
+  const defaultBaseUrl = env.OLLAMA_BASE_URL || "http://localhost:11434";
+  const keyEndpoints = parseDiscreteApiKeys(env, defaultBaseUrl);
+  if (keyEndpoints.length > 0) return keyEndpoints;
+
   return [
     {
       name: "default",
-      baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
-      apiKey: process.env.OLLAMA_API_KEY || undefined,
+      baseUrl: defaultBaseUrl,
+      apiKey: env.OLLAMA_API_KEY || undefined,
       priority: 1,
     },
   ];

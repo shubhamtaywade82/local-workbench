@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { resetAiClientsForTests } from "../server";
+import { parseOllamaEndpoints, resetAiClientsForTests } from "../server";
 
 import { createChatProvider, probeAiProvider } from "./provider";
 
@@ -95,5 +95,86 @@ describe("provider status", () => {
     } finally {
       process.env.OPENAI_API_KEY = key;
     }
+  });
+});
+
+describe("parseOllamaEndpoints", () => {
+  test("falls back to default endpoint when no env vars are set", () => {
+    const endpoints = parseOllamaEndpoints({});
+    expect(endpoints).toEqual([
+      { name: "default", baseUrl: "http://localhost:11434", apiKey: undefined, priority: 1 },
+    ]);
+  });
+
+  test("uses custom OLLAMA_BASE_URL and OLLAMA_API_KEY for default endpoint", () => {
+    const endpoints = parseOllamaEndpoints({
+      OLLAMA_BASE_URL: "http://custom:11434",
+      OLLAMA_API_KEY: "secret-key",
+    });
+    expect(endpoints).toEqual([
+      { name: "default", baseUrl: "http://custom:11434", apiKey: "secret-key", priority: 1 },
+    ]);
+  });
+
+  test("resolves multiple discrete API keys OLLAMA_API_KEY_1 and OLLAMA_API_KEY_2", () => {
+    const endpoints = parseOllamaEndpoints({
+      OLLAMA_BASE_URL: "http://localhost:11434",
+      OLLAMA_API_KEY_1: "key-1",
+      OLLAMA_API_KEY_2: "key-2",
+    });
+    expect(endpoints).toHaveLength(2);
+    expect(endpoints[0]).toMatchObject({ name: "ollama-key-1", baseUrl: "http://localhost:11434", apiKey: "key-1", priority: 1 });
+    expect(endpoints[1]).toMatchObject({ name: "ollama-key-2", baseUrl: "http://localhost:11434", apiKey: "key-2", priority: 1 });
+  });
+
+  test("respects per-key name, models, priority and custom base URL overrides", () => {
+    const endpoints = parseOllamaEndpoints({
+      OLLAMA_API_KEY_1: "key-cloud",
+      OLLAMA_API_KEY_1_NAME: "beam-cloud-key",
+      OLLAMA_API_KEY_1_BASE_URL: "https://ollama.com",
+      OLLAMA_API_KEY_1_MODELS: "beam:cloud,llama3.1:8b",
+      OLLAMA_API_KEY_1_PRIORITY: "10",
+    });
+    expect(endpoints).toEqual([
+      {
+        name: "beam-cloud-key",
+        baseUrl: "https://ollama.com",
+        apiKey: "key-cloud",
+        priority: 10,
+        models: ["beam:cloud", "llama3.1:8b"],
+      },
+    ]);
+  });
+
+  test("resolves comma-separated OLLAMA_API_KEYS", () => {
+    const endpoints = parseOllamaEndpoints({
+      OLLAMA_BASE_URL: "http://ollama-host:11434",
+      OLLAMA_API_KEYS: "key-a, key-b, key-c",
+    });
+    expect(endpoints).toEqual([
+      { name: "ollama-key-1", baseUrl: "http://ollama-host:11434", apiKey: "key-a", priority: 1 },
+      { name: "ollama-key-2", baseUrl: "http://ollama-host:11434", apiKey: "key-b", priority: 1 },
+      { name: "ollama-key-3", baseUrl: "http://ollama-host:11434", apiKey: "key-c", priority: 1 },
+    ]);
+  });
+
+  test("resolves comma-separated keys in OLLAMA_API_KEY", () => {
+    const endpoints = parseOllamaEndpoints({
+      OLLAMA_API_KEY: "key-x, key-y",
+    });
+    expect(endpoints).toHaveLength(2);
+    expect(endpoints[0].apiKey).toBe("key-x");
+    expect(endpoints[1].apiKey).toBe("key-y");
+  });
+
+  test("OLLAMA_ENDPOINTS takes precedence over discrete keys", () => {
+    const endpoints = parseOllamaEndpoints({
+      OLLAMA_ENDPOINTS: JSON.stringify([
+        { name: "explicit-json", baseUrl: "http://remote:11434", apiKey: "json-key" },
+      ]),
+      OLLAMA_API_KEY_1: "discrete-key",
+    });
+    expect(endpoints).toHaveLength(1);
+    expect(endpoints[0].name).toBe("explicit-json");
   });
 });
