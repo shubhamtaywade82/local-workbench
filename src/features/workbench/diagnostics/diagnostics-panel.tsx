@@ -17,9 +17,10 @@ export function DiagnosticsPanel() {
   // derived value. Avoids infinite re-render loops from returning a fresh
   // array reference on every state change.
   const diagMap = useWorkbench((s) => s.diagnostics);
+  const archifyMap = useWorkbench((s) => s.archifyDiagnostics);
   const diagnostics = useMemo<Diagnostic[]>(
-    () => Object.values(diagMap).flat(),
-    [diagMap]
+    () => [...Object.values(diagMap).flat(), ...Object.values(archifyMap).flat()],
+    [diagMap, archifyMap]
   );
   const setActiveTab = useWorkbench((s) => s.setActiveTab);
   const sessions = useWorkbench((s) => s.sessions);

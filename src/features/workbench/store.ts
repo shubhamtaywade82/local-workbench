@@ -67,6 +67,8 @@ interface WorkbenchState {
 
   // --- Diagnostics --------------------------------------------------------
   diagnostics: Record<string, Diagnostic[]>;
+  /** Latest Archify verdict per document. Kept apart: it is asynchronous and the parser's list is replaced on every edit. */
+  archifyDiagnostics: Record<string, Diagnostic[]>;
   diagnosticsVisible: boolean;
 
   // --- AI -----------------------------------------------------------------
@@ -99,6 +101,7 @@ interface WorkbenchState {
 
   setDiagnostics: (path: string, diagnostics: Diagnostic[]) => void;
   clearDiagnostics: (path: string) => void;
+  setArchifyDiagnostics: (path: string, diagnostics: Diagnostic[]) => void;
   setDiagnosticsVisible: (visible: boolean) => void;
 
   setAiVisible: (visible: boolean) => void;
@@ -127,6 +130,7 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
   previewMode: "preview",
 
   diagnostics: {},
+  archifyDiagnostics: {},
   diagnosticsVisible: true,
 
   aiVisible: true,
@@ -165,13 +169,15 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
       delete sessions[path];
       const diagnostics = { ...state.diagnostics };
       delete diagnostics[path];
+      const archifyDiagnostics = { ...state.archifyDiagnostics };
+      delete archifyDiagnostics[path];
       const activeTab =
         state.activeTab === path
           ? openTabs.length > 0
             ? openTabs[openTabs.length - 1].path
             : null
           : state.activeTab;
-      return { openTabs, sessions, diagnostics, activeTab };
+      return { openTabs, sessions, diagnostics, archifyDiagnostics, activeTab };
     }),
 
   closeAllTabs: () =>
@@ -179,6 +185,7 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
       openTabs: [],
       sessions: {},
       diagnostics: {},
+      archifyDiagnostics: {},
       activeTab: null,
     }),
 
@@ -252,6 +259,10 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
       delete diagnostics[path];
       return { diagnostics };
     }),
+  setArchifyDiagnostics: (path, diagnostics) =>
+    set((state) => ({
+      archifyDiagnostics: { ...state.archifyDiagnostics, [path]: diagnostics },
+    })),
   setDiagnosticsVisible: (diagnosticsVisible) => set({ diagnosticsVisible }),
 
   setAiVisible: (aiVisible) => set({ aiVisible }),
@@ -288,7 +299,7 @@ export function selectActiveTab(state: WorkbenchState): OpenTab | null {
 }
 
 export function selectAllDiagnostics(state: WorkbenchState): Diagnostic[] {
-  return Object.values(state.diagnostics).flat();
+  return [...Object.values(state.diagnostics).flat(), ...Object.values(state.archifyDiagnostics).flat()];
 }
 
 export function selectDirtyCount(state: WorkbenchState): number {

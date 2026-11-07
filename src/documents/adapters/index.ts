@@ -3,6 +3,7 @@
 
 export { markdownAdapter } from "./markdown/markdown";
 export { jsonAdapter } from "./json/json";
+export { archifyAdapter } from "./archify/archify";
 export { yamlAdapter } from "./yaml/yaml";
 export { tomlAdapter } from "./toml/toml";
 export { mermaidAdapter } from "./mermaid/mermaid";

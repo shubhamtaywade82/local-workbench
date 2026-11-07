@@ -11,6 +11,7 @@ A powerful, local-first document editor with AI assistance, built with Next.js 1
 - **AI Assistant**: Chat + 5 structured actions (Explain, Fix, Convert, Diagram, Improve)
 - **Command Palette**: Fuzzy file search and actions (⌘/Ctrl + P)
 - **Diagnostics Panel**: Problems view with severity levels
+- **Archify live diagrams**: ten Archify diagram types rendered live from their JSON IR (see below)
 - **Local-First**: File System Access API for direct disk access (Chrome/Edge)
 - **Sample Workspace**: 10 pre-loaded files covering all formats
 - **Persistence**: IndexedDB for recent workspaces, recovery drafts, and settings
@@ -144,6 +145,7 @@ Not watched: changes made outside the workbench appear after reopening the folde
 src/
 ├── app/
 │   ├── api/ai/              # AI backend routes (server-side)
+│   ├── api/archify/render/  # Archify live-diagram render (server-side)
 │   ├── layout.tsx
 │   └── page.tsx             # Entry point, loads WorkbenchShell
 ├── documents/
@@ -163,6 +165,7 @@ src/
 │   ├── store.ts             # Zustand store (tabs, sessions, diagnostics, AI)
 │   └── hooks.ts             # useDebounced / useDebouncedWithPending
 ├── lib/preview-renderers/   # Markdown / StructuredData / Mermaid / XmlTree / TextFallback
+├── lib/archify/             # Archify contract, detection, render service (server-only parts marked)
 ├── platform/
 │   ├── filesystem/          # WorkspaceFileSystem contract + In-memory & FSA impls
 │   └── persistence/         # IndexedDB (recent workspaces, recovery drafts, settings)
@@ -190,6 +193,38 @@ Click action chips in the AI panel:
 - **Improve** — Rewrite Markdown preserving structure & code blocks
 
 Or chat directly in the textbox — responses stream via SSE.
+
+## Archify Live Diagrams
+
+Open an [Archify](https://github.com/tt-a1i/archify) IR document (a `.json` file whose top-level `diagram_type` is `architecture`, `workflow`, `sequence`, `dataflow`, `lifecycle`, `erd`, `tree`, `class`, `timeline` or `waterfall`) and the preview pane renders it as an interactive diagram. Edits re-render after a short pause. The sample workspace includes one (`diagrams/local-workbench.architecture.json`).
+
+- **Verified output only.** HTML is shown only after Archify's delivery gates pass (schema, layout, HTML/SVG and route checks) and the receipt's digest matches the rendered bytes.
+- **The last good revision stays.** An incomplete or invalid edit keeps the last verified diagram on screen, with the failure above it. Each failure shows Archify's rule code and its supported fix, and the same entries appear in **Problems**.
+- **Quality profiles.** `showcase` (default) fails composition issues. `standard` reports them as warnings. Warnings appear in the preview and in Problems.
+- **Download HTML** saves the verified, self-contained file. Nothing is written to your workspace.
+- **Sandboxed.** The diagram runs in a frame that allows scripts only, with no access to the workbench's origin, storage or cookies.
+
+**How it works.** `POST /api/archify/render` receives the editor draft (never a file path) and runs Archify's own `deliver --json` pipeline, the same gate `archify preview` uses, in a private temporary directory. The runtime is the vendored Archify 3.2.0 tree in `vendor/archify`, which runs under Node.js 18 or later (`node` on `PATH` when the server itself runs under Bun). Archify's update check is disabled for these renders. The browser keeps the last verified revision; the server caches identical renders.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `ARCHIFY_RENDER_TIMEOUT_MS` | `20000` | Wall-clock budget for one render (minimum 1000). |
+| Document size | 1 MiB | Larger documents are refused before Archify starts. |
+| Concurrency | 2 running, 8 queued | Further renders are answered `busy` and retried on the next edit. |
+
+**Not supported in the live preview.**
+- Explainer documents (Archify's Markdown-based explainer type). Use the Archify CLI.
+- Repository evidence (`sources`). Without a pinned `meta.repository`, Archify reports `repository-evidence/repository-required`.
+- Remote brand captures (`brand: { url, sha256 }`). Archify would fetch that URL while rendering, so the workbench refuses it with `brand/remote-capture-disabled`. Built-in brand IDs work (`archify brands` lists them).
+
+**Updating the runtime.** The runtime is a pinned copy of the Archify Skill's runtime files. `vendor/archify/VENDOR.json` records the upstream version and commit, and the Apache-2.0 license and notices are included.
+
+```bash
+node scripts/sync-archify.mjs --from /path/to/tt-a1i/archify          # copy the runtime subset
+node scripts/sync-archify.mjs --from /path/to/tt-a1i/archify --check  # verify it matches the checkout
+```
+
+After syncing, run `bun run test`. The archify tests render all ten fixtures through the vendored runtime.
 
 ## Browser Support
 

@@ -53,6 +53,7 @@ export function EditorPane() {
   );
   const updateDraft = useWorkbench((s) => s.updateDraft);
   const setDiagnostics = useWorkbench((s) => s.setDiagnostics);
+  const setArchifyDiagnostics = useWorkbench((s) => s.setArchifyDiagnostics);
   const diagnosticsVisible = useWorkbench((s) => s.diagnosticsVisible);
   const setDiagnosticsVisible = useWorkbench((s) => s.setDiagnosticsVisible);
   const editorRef = useRef<MonacoEditorInstance | null>(null);
@@ -71,7 +72,8 @@ export function EditorPane() {
   useEffect(() => {
     if (!session) return;
     const path = session.path;
-    const adapter = documentRegistry.resolve(path);
+    // Content-aware, so an Archify document gets its own adapter; its verdict comes from the live preview.
+    const adapter = documentRegistry.resolveForContent(path, debouncedText);
     let diagnostics: Diagnostic[] = [];
     try {
       const result = adapter.parse(debouncedText, path);
@@ -95,6 +97,10 @@ export function EditorPane() {
       return;
     }
     setDiagnostics(path, diagnostics);
+    // A document that stopped being an Archify diagram must not keep an old verdict in Problems.
+    if (adapter.id !== "archify" && useWorkbench.getState().archifyDiagnostics[path]?.length) {
+      setArchifyDiagnostics(path, []);
+    }
     if (monacoRef.current && editorRef.current) {
       const model = editorRef.current.getModel();
       const monaco = monacoRef.current;
@@ -119,7 +125,7 @@ export function EditorPane() {
         monaco.editor.setModelMarkers(model, "workbench", markers);
       }
     }
-  }, [debouncedText, session, setDiagnostics]);
+  }, [debouncedText, session, setDiagnostics, setArchifyDiagnostics]);
 
   // When the active session's draftText changes externally (AI fix, revert,
   // reload-from-disk) and Monaco's value is out of date, sync it.
