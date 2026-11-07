@@ -23,7 +23,13 @@ export const DESKTOP_CHANNELS = {
   chooseWorkspace: "workbench:choose-workspace",
   fs: "workbench:fs",
   command: "workbench:command",
+  titleBarTheme: "workbench:title-bar-theme",
+  menu: "workbench:menu",
 } as const;
+
+/** Top-level menus the custom title bar can open, in display order. */
+export const DESKTOP_MENUS = ["File", "Edit", "View", "Window"] as const;
+export type DesktopMenu = (typeof DESKTOP_MENUS)[number];
 
 /** Describes the workspace a window is bound to. */
 export interface DesktopLaunchTarget {
@@ -88,6 +94,10 @@ export interface DesktopBridge {
   chooseWorkspace(): Promise<DesktopLaunchTarget | null>;
   fs(request: DesktopFsRequest): Promise<DesktopFsResult>;
   onCommand(listener: (command: DesktopCommand) => void): void;
+  /** Recolors the native window controls drawn over the custom title bar. */
+  setTitleBarTheme(theme: "light" | "dark"): void;
+  /** Pops up a top-level menu, or the whole menu ("All"), at a point in window coordinates. */
+  showMenu(menu: DesktopMenu | "All", x: number, y: number): void;
 }
 
 /** Thrown in the renderer when a desktop filesystem request fails. */

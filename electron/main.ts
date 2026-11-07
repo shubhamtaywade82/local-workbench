@@ -5,13 +5,14 @@
 // folder: it sends a relative path plus the binding token it was given, and
 // the main process resolves that against the window's own root.
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, utilityProcess, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell, utilityProcess, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   DESKTOP_CHANNELS,
+  DESKTOP_MENUS,
   DESKTOP_TOKEN_HEADER,
   type DesktopCommand,
   type DesktopErrorCode,
@@ -32,8 +33,17 @@ import {
 } from "./platform";
 import { ServerManager, type ServerProcess } from "./server-manager";
 import { contentSecurityPolicy, externalUrlToOpen, isAppUrl, originOf } from "./window-policy";
+import { DEFAULT_WINDOW_STATE, loadWindowState, placeOnScreen, saveWindowState, type WindowState } from "./window-state";
 
 const APP_NAME = "Local Workbench";
+
+// Matches the renderer's title bar (the --sidebar and --foreground theme tokens),
+// so the native window controls blend into it as in VS Code.
+const TITLE_BAR_HEIGHT = 35;
+const TITLE_BAR_COLORS = {
+  light: { color: "#fafafa", symbolColor: "#0a0a0a" },
+  dark: { color: "#171717", symbolColor: "#fafafa" },
+} as const;
 
 // Set before anything reads app.getPath(), because it determines userData.
 app.setName(APP_NAME);
@@ -82,6 +92,11 @@ let desktopToken: string | undefined;
 let server: ServerManager | null = null;
 let logger: RotatingLog | null = null;
 let shuttingDown = false;
+let windowState: WindowState = DEFAULT_WINDOW_STATE;
+
+function windowStateFile(): string {
+  return path.join(app.getPath("userData"), "window-state.json");
+}
 
 function log(line: string): void {
   const text = `${new Date().toISOString()} ${line}`;
@@ -134,13 +149,28 @@ function findBindingForRoot(rootId: string): WindowBinding | undefined {
 function createWindow(workspace: NativeWorkspace | null, openFile: string | null): BrowserWindow {
   if (!appOrigin) throw new Error("the local server is not running");
 
+  // Only the first window takes the saved position; later ones let the OS cascade them.
+  const isFirstWindow = bindings.size === 0;
+  const saved = windowState.bounds;
+  const placement = saved
+    ? isFirstWindow
+      ? placeOnScreen(saved, screen.getAllDisplays().map((display) => display.workArea))
+      : { width: saved.width, height: saved.height }
+    : { width: 1400, height: 900 };
+  const colors = TITLE_BAR_COLORS[windowState.theme];
+
   const window = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    ...placement,
     minWidth: 900,
     minHeight: 600,
     show: false,
     title: APP_NAME,
+    backgroundColor: colors.color,
+    // The renderer draws the title bar; the OS only keeps the window controls.
+    titleBarStyle: "hidden",
+    ...(process.platform === "darwin"
+      ? { trafficLightPosition: { x: 12, y: 10 } }
+      : { titleBarOverlay: { ...colors, height: TITLE_BAR_HEIGHT } }),
     webPreferences: {
       preload: path.join(bundleDir, "preload.cjs"),
       contextIsolation: true,
@@ -156,7 +186,11 @@ function createWindow(workspace: NativeWorkspace | null, openFile: string | null
   if (workspace) bindWorkspace(binding, workspace, openFile);
   bindings.set(id, binding);
 
-  window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => {
+    if (isFirstWindow && windowState.isMaximized) window.maximize();
+    window.show();
+  });
+  window.on("close", () => rememberWindowState(window));
   window.on("closed", () => bindings.delete(id));
   guardNavigation(window.webContents, appOrigin);
 
@@ -164,6 +198,15 @@ function createWindow(workspace: NativeWorkspace | null, openFile: string | null
     log(`failed to load the workbench page: ${err.message}`);
   });
   return window;
+}
+
+function rememberWindowState(window: BrowserWindow): void {
+  windowState = { ...windowState, bounds: window.getNormalBounds(), isMaximized: window.isMaximized() };
+  try {
+    saveWindowState(windowStateFile(), windowState);
+  } catch (err) {
+    log(`could not save the window state: ${(err as Error).message}`);
+  }
 }
 
 function guardNavigation(contents: WebContents, origin: string): void {
@@ -284,7 +327,7 @@ function parseFsRequest(raw: unknown): DesktopFsRequest | null {
 }
 
 /** Only the top frame of our own origin may call the bridge. */
-function isTrustedSender(event: IpcMainInvokeEvent): boolean {
+function isTrustedSender(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
   const frame = event.senderFrame;
   if (!frame || appOrigin === null) return false;
   return frame.parent === null && originOf(frame.url) === appOrigin;
@@ -372,6 +415,27 @@ function registerIpc(): void {
     }
   });
 
+  ipcMain.on(DESKTOP_CHANNELS.titleBarTheme, (event, theme: unknown) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!isTrustedSender(event) || !window) return;
+    if (theme !== "light" && theme !== "dark") return;
+    windowState = { ...windowState, theme };
+    window.setBackgroundColor(TITLE_BAR_COLORS[theme].color);
+    if (process.platform !== "darwin") window.setTitleBarOverlay({ ...TITLE_BAR_COLORS[theme], height: TITLE_BAR_HEIGHT });
+  });
+
+  ipcMain.on(DESKTOP_CHANNELS.menu, (event, menu: unknown, x: unknown, y: unknown) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!isTrustedSender(event) || !window) return;
+    if (typeof x !== "number" || typeof y !== "number") return;
+    const appMenu = Menu.getApplicationMenu();
+    const at = { window, x: Math.round(x), y: Math.round(y) };
+    // "All" is the collapsed menu a narrow window shows instead of the menu row.
+    if (menu === "All") return appMenu?.popup(at);
+    if (!DESKTOP_MENUS.includes(menu as never)) return;
+    appMenu?.items.find((entry) => entry.label.replace("&", "") === menu)?.submenu?.popup(at);
+  });
+
   ipcMain.handle(DESKTOP_CHANNELS.fs, async (event, raw: unknown): Promise<DesktopFsResult> => {
     if (!isTrustedSender(event)) return failure("FORBIDDEN", "request did not come from the workbench page");
     const binding = bindings.get(event.sender.id);
@@ -454,6 +518,7 @@ function reportFatal(err: unknown): void {
 async function startup(): Promise<void> {
   logger = new RotatingLog(path.join(app.getPath("logs"), "desktop.log"));
   log(`starting ${APP_NAME} ${VERSION} (app root: ${appRoot})`);
+  windowState = loadWindowState(windowStateFile());
   if (wsl) log(`running inside WSL distribution "${wsl.distro || "unknown"}" (WSLg display: ${wsl.hasDisplay})`);
 
   if (devServerUrl) {

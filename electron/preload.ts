@@ -11,6 +11,7 @@ import {
   type DesktopFsRequest,
   type DesktopFsResult,
   type DesktopLaunchTarget,
+  type DesktopMenu,
 } from "../src/lib/desktop/contract";
 
 const commandListeners = new Set<(command: DesktopCommand) => void>();
@@ -25,6 +26,8 @@ const bridge: DesktopBridge = {
   onCommand: (listener: (command: DesktopCommand) => void): void => {
     commandListeners.add(listener);
   },
+  setTitleBarTheme: (theme: "light" | "dark"): void => ipcRenderer.send(DESKTOP_CHANNELS.titleBarTheme, theme),
+  showMenu: (menu: DesktopMenu | "All", x: number, y: number): void => ipcRenderer.send(DESKTOP_CHANNELS.menu, menu, x, y),
 };
 
 contextBridge.exposeInMainWorld(DESKTOP_GLOBAL, bridge);

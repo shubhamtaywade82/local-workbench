@@ -100,6 +100,9 @@ if (process.platform === "linux") {
 const childEnv = { ...process.env, LOCAL_WORKBENCH_HOME: appRoot };
 // The launcher may itself be running under ELECTRON_RUN_AS_NODE; the app must not inherit it.
 delete childEnv.ELECTRON_RUN_AS_NODE;
+// GTK draws the folder picker and menus on Linux. Without a desktop theme (always
+// the case under WSLg) it falls back to light Adwaita, which clashes with the editor.
+if (process.platform === "linux" && !childEnv.GTK_THEME) childEnv.GTK_THEME = "Adwaita:dark";
 
 const entry = packaged ? [] : [path.join(distDir, "main.cjs")];
 const child = spawn(electronBinary, [...entry, "--", ...userArgs], {

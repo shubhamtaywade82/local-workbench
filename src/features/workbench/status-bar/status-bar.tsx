@@ -52,31 +52,31 @@ export function StatusBar() {
   const infos = diagnostics.filter((d) => d.severity === "info" || d.severity === "hint").length;
 
   return (
-    <footer className="flex h-7 shrink-0 items-stretch border-t bg-primary text-primary-foreground text-[11px]">
+    <footer className="flex h-7 shrink-0 items-stretch border-t bg-sidebar text-sidebar-foreground/80 text-[11px]">
       <div className="flex items-center gap-3 px-3 py-1">
         <button
-          className={cn("flex items-center gap-1 rounded px-1 hover:bg-primary-foreground/10", !explorerVisible && "opacity-60")}
+          className={cn("flex items-center gap-1 rounded px-1 transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground", !explorerVisible && "opacity-60")}
           onClick={() => setExplorerVisible(!explorerVisible)}
           title="Toggle explorer (⌘B)"
         >
           <PanelLeft className="h-3 w-3" />
         </button>
         <button
-          className={cn("flex items-center gap-1 rounded px-1 hover:bg-primary-foreground/10", !previewVisible && "opacity-60")}
+          className={cn("flex items-center gap-1 rounded px-1 transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground", !previewVisible && "opacity-60")}
           onClick={() => setPreviewVisible(!previewVisible)}
           title="Toggle preview"
         >
           <Eye className="h-3 w-3" />
         </button>
         <button
-          className={cn("flex items-center gap-1 rounded px-1 hover:bg-primary-foreground/10", !diagnosticsVisible && "opacity-60")}
+          className={cn("flex items-center gap-1 rounded px-1 transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground", !diagnosticsVisible && "opacity-60")}
           onClick={() => setDiagnosticsVisible(!diagnosticsVisible)}
           title="Toggle diagnostics (⌘J)"
         >
           <Stethoscope className="h-3 w-3" />
         </button>
         <button
-          className={cn("flex items-center gap-1 rounded px-1 hover:bg-primary-foreground/10", !aiVisible && "opacity-60")}
+          className={cn("flex items-center gap-1 rounded px-1 transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground", !aiVisible && "opacity-60")}
           onClick={() => setAiVisible(!aiVisible)}
           title="Toggle AI (⌘⇧A)"
         >
@@ -87,7 +87,7 @@ export function StatusBar() {
       <div className="flex items-center gap-3 border-l px-2 py-0.5">
         <WorkspaceSwitcher
           variant="compact"
-          className="hover:bg-primary-foreground/10"
+          className="transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         />
       </div>
 
@@ -95,8 +95,8 @@ export function StatusBar() {
         <div className="hidden items-center gap-2 border-l px-3 py-1 sm:flex">
           <span className="truncate">{activeTab}</span>
           {sessions[activeTab]?.isDirty && (
-            <span className="flex items-center gap-1 text-amber-300">
-              <Circle className="h-2 w-2 fill-amber-300" />
+            <span className="flex items-center gap-1 text-amber-500">
+              <Circle className="h-2 w-2 fill-amber-500" />
               unsaved
             </span>
           )}
@@ -125,7 +125,7 @@ export function StatusBar() {
       </div>
 
       <button
-        className="flex items-center gap-1 border-l px-3 py-1 hover:bg-primary-foreground/10"
+        className="flex items-center gap-1 border-l px-3 py-1 transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
         title="Toggle theme"
       >

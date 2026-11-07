@@ -29,6 +29,7 @@ import { ensureAdaptersRegistered } from "@/documents/bootstrap";
 import { useWorkbench } from "@/features/workbench/store";
 import { loadSettings, saveSettings, listRecentWorkspaces } from "@/platform/persistence/persistence";
 import { ThemeProvider } from "./theme-provider";
+import { TitleBar } from "./title-bar";
 import { cn } from "@/lib/utils";
 
 export function WorkbenchShell() {
@@ -216,6 +217,7 @@ export function WorkbenchShell() {
   return (
     <ThemeProvider>
       <div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
+        <TitleBar />
         <main className="relative flex min-h-0 flex-1 overflow-hidden">
           {/* Mounted only after saved settings are applied, so the panels do not
               change while the group is still restoring its layout. */}
