@@ -21,6 +21,7 @@ import {
   type WorkspaceFileSystem,
 } from "@/platform/filesystem/workspace-fs";
 import { ServerWorkspace, type ServerRootInfo } from "@/platform/filesystem/server-workspace";
+import { confirmAction } from "@/features/workbench/dialogs/dialog-store";
 import { SAMPLE_FILES, SAMPLE_WORKSPACE_NAME } from "@/platform/filesystem/sample-workspace";
 import {
   addRecentWorkspace,
@@ -42,6 +43,11 @@ export type WorkspaceController = {
 };
 
 let fsRef: WorkspaceFileSystem | null = null;
+
+/** The filesystem of the workspace on screen, for features outside React (the assistant). */
+export function getActiveWorkspaceFs(): WorkspaceFileSystem | null {
+  return fsRef;
+}
 
 export function useWorkspaceController(): WorkspaceController {
   const setWorkspace = useWorkbench((s) => s.setWorkspace);
@@ -82,19 +88,22 @@ export function useWorkspaceController(): WorkspaceController {
 
   // Returns false if the user cancels because of unsaved changes, true
   // otherwise (including when there's nothing to confirm).
-  const confirmSwitchWorkspace = useCallback((): boolean => {
+  const confirmSwitchWorkspace = useCallback(async (): Promise<boolean> => {
     const sessions = useWorkbench.getState().sessions;
     const dirty = Object.values(sessions).filter((s) => s.isDirty);
     if (dirty.length === 0) return true;
     const names = dirty.map((s) => s.path.split("/").pop()).join(", ");
-    return window.confirm(
-      `You have unsaved changes in: ${names}.\n\nSwitching workspaces will close these tabs. Recovery drafts have been saved to IndexedDB, but you should save first if you want to keep them on disk.\n\nContinue switching?`
-    );
+    return confirmAction({
+      title: "Switch folder?",
+      description: `Unsaved changes in ${names}. Switching closes these tabs. Recovery drafts stay in this browser, but save first to keep the changes on disk.`,
+      confirmLabel: "Switch folder",
+      destructive: true,
+    });
   }, []);
 
   const openSampleWorkspace = useCallback(async () => {
     // Confirm if there are unsaved changes in the current workspace.
-    if (!confirmSwitchWorkspace()) return;
+    if (!(await confirmSwitchWorkspace())) return;
     // Close all tabs from the previous workspace so we start fresh.
     useWorkbench.getState().closeAllTabs();
     const fs = new InMemoryWorkspace(SAMPLE_WORKSPACE_NAME, SAMPLE_FILES);
@@ -176,7 +185,7 @@ export function useWorkspaceController(): WorkspaceController {
       return;
     }
     // Confirm before switching if there are unsaved changes.
-    if (!confirmSwitchWorkspace()) return;
+    if (!(await confirmSwitchWorkspace())) return;
     const handle = await pickDirectory();
     if (!handle) return; // user cancelled
     await activatePersistentWorkspace(new FileSystemAccessWorkspace(handle));
@@ -184,7 +193,7 @@ export function useWorkspaceController(): WorkspaceController {
 
   const openServerWorkspace = useCallback(
     async (root: ServerRootInfo) => {
-      if (!confirmSwitchWorkspace()) return;
+      if (!(await confirmSwitchWorkspace())) return;
       await activatePersistentWorkspace(new ServerWorkspace(root));
     },
     [activatePersistentWorkspace, confirmSwitchWorkspace]

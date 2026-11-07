@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { documentRegistry } from "@/documents/core/registry";
 import type { WorkspaceFileEntry } from "@/documents/core/types";
+import { notify } from "@/features/workbench/notify";
 
 interface FlatFileEntry {
   path: string;
@@ -118,7 +119,7 @@ export function CommandPalette() {
       | { writeFile: (p: string, c: string) => Promise<void> }
       | null;
     if (!fs) return;
-    await saveAllSessions(fs as never).catch((err: unknown) => window.alert(`Could not save: ${(err as Error).message}`));
+    await saveAllSessions(fs as never).catch((err: unknown) => notify(`Could not save: ${(err as Error).message}`, "error"));
     setOpen(false);
   }
 
@@ -128,7 +129,7 @@ export function CommandPalette() {
       | null;
     const active = useWorkbench.getState().activeTab;
     if (!fs || !active) return;
-    await saveSessionToWorkspace(fs as never, active).catch((err: unknown) => window.alert(`Could not save: ${(err as Error).message}`));
+    await saveSessionToWorkspace(fs as never, active).catch((err: unknown) => notify(`Could not save: ${(err as Error).message}`, "error"));
     setOpen(false);
   }
 

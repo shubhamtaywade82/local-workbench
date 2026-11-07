@@ -102,7 +102,7 @@ export function ArchifyPreview({ source, diagramType, filePath }: ArchifyPreview
             onClick={() => {
               if (verified !== null) downloadHtml(verified, fileName);
             }}
-            className="inline-flex items-center gap-1 rounded border bg-background px-2 py-0.5 text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1 whitespace-nowrap rounded border bg-background px-2 py-0.5 text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download className="h-3 w-3" aria-hidden="true" />
             Download HTML
