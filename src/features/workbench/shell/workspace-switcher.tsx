@@ -37,9 +37,11 @@ import {
   removeRecentWorkspace,
   type RecentWorkspace,
 } from "@/platform/persistence/persistence";
-import { canPickLocalFolder, isFileSystemAccessSupported } from "@/platform/filesystem/workspace-fs";
+import { isFileSystemAccessSupported } from "@/platform/filesystem/workspace-fs";
 import { listServerRoots, type ServerRootInfo } from "@/platform/filesystem/server-workspace";
 import { cn } from "@/lib/utils";
+import { confirmAction } from "@/features/workbench/dialogs/dialog-store";
+import { notify } from "@/features/workbench/notify";
 
 interface Props {
   /** "compact" renders a thinner trigger for the status bar. */
@@ -55,7 +57,6 @@ export function WorkspaceSwitcher({ variant = "default", className }: Props) {
   const [serverRoots, setServerRoots] = useState<ServerRootInfo[] | null>(null);
   const [open, setOpen] = useState(false);
   const fsaSupported = isFileSystemAccessSupported();
-  const canPick = canPickLocalFolder();
 
   // Load recent workspaces when the menu opens.
   useEffect(() => {
@@ -96,9 +97,7 @@ export function WorkspaceSwitcher({ variant = "default", className }: Props) {
       // long as the server still lists this root.
       const root = serverRoots?.find((r) => r.id === item.serverRootId);
       if (!root) {
-        window.alert(
-          `"${item.name}" is no longer available on the server. Check WORKSPACE_ROOTS and that the server is running.`
-        );
+        notify(`"${item.name}" is no longer available on the server. Check WORKSPACE_ROOTS and that the server is running.`, "error");
         return;
       }
       await controller.openServerWorkspace(root);
@@ -107,14 +106,14 @@ export function WorkspaceSwitcher({ variant = "default", className }: Props) {
       // — re-trigger the picker. The user will be guided to pick the same
       // folder (whose name is preserved in `item.handleName`).
       if (!fsaSupported) {
-        window.alert(
-          "Your browser does not support the File System Access API. Use Chrome or Edge desktop to reopen this workspace."
-        );
+        notify("Your browser does not support the File System Access API. Use Chrome or Edge desktop to reopen this workspace.", "error");
         return;
       }
-      const ok = window.confirm(
-        `Re-opening "${item.handleName ?? item.name}" requires you to re-pick the folder in the system picker (browser security). Continue?`
-      );
+      const ok = await confirmAction({
+        title: "Pick the folder again",
+        description: `Re-opening "${item.handleName ?? item.name}" needs the system picker, because the browser does not keep folder access between sessions.`,
+        confirmLabel: "Choose folder",
+      });
       if (!ok) return;
       await controller.openLocalDirectory();
     }
@@ -146,7 +145,7 @@ export function WorkspaceSwitcher({ variant = "default", className }: Props) {
         ) : (
           <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
         )}
-        <span className={cn("truncate", isCompact ? "max-w-[160px]" : "flex-1 font-medium")}>
+        <span className={cn("truncate", isCompact ? "min-w-0 max-w-[88px] sm:max-w-[160px]" : "flex-1 font-medium")}>
           {displayName}
         </span>
         <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
@@ -171,11 +170,9 @@ export function WorkspaceSwitcher({ variant = "default", className }: Props) {
                     ? "Sample (in-memory)"
                     : workspace.source === "server"
                       ? "Server folder"
-                      : workspace.source === "electron"
-                        ? "Desktop folder"
-                        : workspace.source}
+                      : workspace.source}
               </div>
-              {!canPick && (
+              {!fsaSupported && (
                 <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
                   File System Access API unavailable — open-local-folder disabled.
                 </div>
@@ -186,7 +183,7 @@ export function WorkspaceSwitcher({ variant = "default", className }: Props) {
         )}
         <DropdownMenuItem
           onClick={handleOpenLocal}
-          disabled={!canPick}
+          disabled={!fsaSupported}
           className="gap-2 text-xs"
         >
           <FolderOpen className="h-3.5 w-3.5" />

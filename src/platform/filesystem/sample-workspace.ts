@@ -137,6 +137,35 @@ select = ["E", "F", "I", "UP"]
 `,
   },
   {
+    path: "diagrams/local-workbench.architecture.json",
+    content: `{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Local Workbench",
+    "subtitle": "Browser editor, server workspace and Archify preview",
+    "output": "local-workbench.architecture.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "browser", "type": "frontend", "label": "Browser tab", "sublabel": "Monaco editor", "pos": [40, 200], "size": [150, 64] },
+    { "id": "shell", "type": "frontend", "label": "Workbench shell", "sublabel": "Explorer, tabs, preview", "pos": [260, 200], "size": [170, 64] },
+    { "id": "api", "type": "backend", "label": "Next.js routes", "sublabel": "/api/fs, /api/archify", "pos": [500, 200], "size": [170, 64] },
+    { "id": "archify", "type": "backend", "label": "Archify runtime", "sublabel": "vendor/archify deliver", "pos": [500, 360], "size": [170, 64] },
+    { "id": "files", "type": "database", "label": "Workspace folder", "sublabel": "WORKSPACE_ROOTS", "pos": [760, 200], "size": [150, 64] },
+    { "id": "ai", "type": "external", "label": "Model provider", "sublabel": "Optional, OpenAI-compatible", "pos": [760, 360], "size": [150, 64] }
+  ],
+  "connections": [
+    { "from": "browser", "to": "shell", "label": "edits" },
+    { "from": "shell", "to": "api", "label": "POST draft" },
+    { "from": "api", "to": "archify", "label": "deliver --json", "route": "orthogonal-v" },
+    { "from": "api", "to": "files", "label": "read / write", "variant": "dashed" },
+    { "from": "api", "to": "ai", "label": "assist", "variant": "dashed" }
+  ]
+}
+`,
+  },
+  {
     path: "data/team.json",
     content: `{
   "team": "platform",

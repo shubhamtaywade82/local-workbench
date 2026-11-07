@@ -8,9 +8,11 @@ A powerful, local-first document editor with AI assistance, built with Next.js 1
 - **Live Preview**: Real-time rendered preview for all supported formats
 - **File Explorer**: Tree view with lazy loading, workspace switching, and recent workspaces
 - **Editor Tabs**: Monaco-based editor with dirty indicators and keyboard shortcuts
-- **AI Assistant**: Chat + 5 structured actions (Explain, Fix, Convert, Diagram, Improve)
+- **AI Assistant**: Streaming chat plus Explain, Fix, Convert, Improve, Diagram, Archify diagram and architecture review. Edits arrive as reviewable proposals, and nothing is written until you apply one
+- **Responsive layouts**: three panes on desktop, the assistant as a sheet on tablets, and Editor / Preview tabs with sheets on phones
 - **Command Palette**: Fuzzy file search and actions (⌘/Ctrl + P)
 - **Diagnostics Panel**: Problems view with severity levels
+- **Archify live diagrams**: ten Archify diagram types rendered live from their JSON IR (see below)
 - **Local-First**: File System Access API for direct disk access (Chrome/Edge)
 - **Sample Workspace**: 10 pre-loaded files covering all formats
 - **Persistence**: IndexedDB for recent workspaces, recovery drafts, and settings
@@ -93,7 +95,7 @@ Requires [Ollama](https://ollama.ai) running locally. Pull a model first:
 ollama pull llama3.1:8b
 ```
 
-The integration uses `@nemesis-oss/ollama-sdk`'s `OpenAICompatClient` (`/v1/chat/completions`) behind the same typed `ChatCompletionsClient` used for OpenAI (`src/lib/ai/server.ts`), so all AI actions (chat, explain, fix, convert, diagram, improve) work identically. Note that `OpenAICompatClient` is **not** shape-compatible with the `openai` SDK (it exposes `createChatCompletion`, not `chat.completions.create`); the adapter in `server.ts` bridges the two.
+The integration uses `@nemesis-oss/ollama-sdk`'s `OpenAICompatClient` (`/v1/chat/completions`) behind the same typed `ChatCompletionsClient` used for OpenAI (`src/lib/ai/server.ts`), so every AI task (chat, explain, fix, convert, improve, diagram, Archify diagram, architecture review) works identically. Note that `OpenAICompatClient` is **not** shape-compatible with the `openai` SDK (it exposes `createChatCompletion`, not `chat.completions.create`); the adapter in `server.ts` bridges the two.
 
 For multiple Ollama hosts / Ollama Cloud keys with failover, see `OLLAMA_ENDPOINTS` in `.env.example` (higher `priority` is tried first). `OLLAMA_TIMEOUT_MS` (default `120000`) bounds the whole request, including the full streamed response.
 
@@ -106,7 +108,7 @@ With `AI_GENERATIVE_UI=1`, chat and **Explain** answers may include interactive 
 - **Single contract:** `src/lib/ai/generative-ui/components.ts` defines names, descriptions and zod prop schemas once. The server builds the system prompt from it (`prompt.ts`, no React), and the client attaches shadcn renderers (`src/features/workbench/ai-assistant/generative-ui/library.tsx`). No CLI-generated spec to keep in sync.
 - **Edits stay review-only:** `ProposedEdit` never writes. Its *Review diff* button emits a `workbench.propose_edit` action, which fills the existing diff-then-Apply flow for the document the message was generated against. All other action types (`OpenUrl`, …) are ignored.
 - **Only `openui-lang` fences are UI:** ```` ```json ````/```` ```yaml ```` blocks stay text (`segments.ts`). A finished block that parses to nothing falls back to showing its source.
-- **Opt-in on both sides:** the server flag gates the prompt; the client requests it and the response header `X-Generative-UI` confirms it. With the flag off, prompts and responses are unchanged.
+- **Opt-in on both sides:** the server flag gates the prompt; the client asks for it per request, and the `generativeUi` field of the text result confirms it was used. With the flag off, prompts and responses are unchanged.
 - **Cost:** the component prompt is about 1.4k tokens. On Ollama, raise the context window on the server (e.g. `OLLAMA_CONTEXT_LENGTH=8192`), or long documents will be truncated silently.
 - **Measure before enabling:** `bun run eval:genui -- --runs 3 --min-rate 0.8` runs the real prompt against your configured model and reports the clean-parse rate.
 - **Not used:** OpenUI Gateway and Autofix (paid Thesys cloud, would send prompts off-box) and `@openuidev/react-ui` (requires zustand 4; this app uses zustand 5).
@@ -138,95 +140,13 @@ The roots appear under **Server folders** in the workspace switcher and reopen f
 
 Not watched: changes made outside the workbench appear after reopening the folder (or refreshing the explorer).
 
-## Desktop App (Electron)
-
-The workbench also runs in its own window, opened from a `local-workbench` command. The web app is unchanged.
-
-```bash
-bun run desktop:build                       # production build + Electron bundle
-bun run desktop:install-cli                 # links local-workbench into ~/.local/bin (Linux/macOS, and WSL)
-
-local-workbench                             # focus the app, or open a folder picker
-local-workbench ~/projects/crypto-agent     # open a folder
-local-workbench notes/plan.md               # open a file; its folder becomes the workspace
-local-workbench --new-window ~/notes        # always open a new window
-```
-
-- **One app per user.** A second `local-workbench` call forwards its path to the running app. A folder that is already open is focused; a file inside an open folder opens in that window; any other folder opens a new window.
-- **Scoped filesystem.** Each window is bound to one folder. `..`, absolute paths and symlinks that leave the folder are refused.
-- **No silent overwrites.** A save that conflicts with a change on disk asks first: overwrite the disk version, load the disk version (discarding your edits, after a second confirmation), or keep editing. Nothing is written unless you choose so.
-- **Loopback server.** The app starts its own Next.js server on `127.0.0.1` and remembers its port, so recovery drafts survive restarts. `/api/*` requires a token generated per launch.
-- **Content security policy.** The window only loads from the app origin; other origins and `eval` are blocked. The development server gets the relaxed policy it needs for hot reload.
-- **Logs.** `desktop.log` lives in the app's log folder (Electron's `logs` path) and rotates at 5 MB, keeping three old files.
-- **Development.** Run `bun run dev`, then `LOCAL_WORKBENCH_DEV_URL=http://127.0.0.1:3000 bun run desktop:start` to load the dev server instead of the production build.
-
-### WSL
-
-The workbench can run inside WSL with its window shown on Windows through WSLg. Install and build inside the distribution, next to your projects.
-
-Requirements: WSL 2 with WSLg (Windows 11, or Windows 10 with WSLg), Bun 1.4.2 (the version CI uses), and git. `echo "$DISPLAY$WAYLAND_DISPLAY"` must print a value.
-
-```bash
-# inside WSL (Ubuntu)
-git clone https://github.com/shubhamtaywade82/local-workbench ~/projects/local-workbench
-cd ~/projects/local-workbench
-bun install --frozen-lockfile
-bunx prisma generate                     # the production build imports the Prisma client
-node node_modules/electron/install.js    # Electron downloads its binary on first use, not during bun install
-bun run desktop:build
-bun run desktop:install-cli              # puts local-workbench in ~/.local/bin; add that folder to PATH if needed
-local-workbench ~/projects/crypto-agent
-```
-
-If the launcher prints a `chown`/`chmod` line for `chrome-sandbox`, run that line once (see **Sandbox** below).
-
-- **Windows paths work in WSL.** `local-workbench C:\Users\me\projects\app` becomes `/mnt/c/Users/me/projects/app`. `\\wsl.localhost\<this distribution>\home\me\app` becomes `/home/me/app`. A path inside another distribution is refused with a message.
-- **From PowerShell or cmd.** Inside WSL, run `bun run desktop:install-cli -- --windows` once. It writes `local-workbench.cmd` into `%LOCALAPPDATA%\Microsoft\WindowsApps`, and the command forwards to this distribution with your current folder. Then `local-workbench .` works in PowerShell.
-- **Rendering.** Hardware acceleration is off inside WSL, because Chromium's GPU path misbehaves under some WSLg drivers. `LOCAL_WORKBENCH_GPU=1` turns it back on.
-- **Links.** Web links open in the Windows default browser (through `explorer.exe`).
-- **Sandbox.** Ubuntu 24.04 and recent WSL images restrict user namespaces, which Electron's sandbox needs. The launcher prints the one-line fix when it detects this; the `.deb` applies it at install.
-- **WSLg missing.** The launcher says so and gives the `wsl --update` / `wsl --shutdown` steps.
-
-**Acceptance test.** Run the end-to-end test against the real launcher and window. Run it as a normal WSL user, not root, because Chromium refuses to run as root:
-
-```bash
-cd ~/projects/local-workbench
-bun add --no-save playwright-core       # test client only; package.json and bun.lock stay unchanged
-bun tests/desktop/acceptance.mjs
-```
-
-The last line should read `39/39 checks passed`. The test opens and closes the app window on the Windows desktop several times.
-
-**Logs and failures.**
-- Log: `~/.config/Local Workbench/logs/desktop.log`, rotated at 5 MB into `desktop.log.1` to `desktop.log.3`. Fatal errors name this file in their dialog.
-- Sandbox errors after the fix above: check that `node_modules/electron/dist/chrome-sandbox` is owned by root and setuid (`ls -l` shows `-rwsr-xr-x`).
-- Build fails with a Prisma error: run `bunx prisma generate`.
-- A `\\wsl.localhost\...` path is refused: that path belongs to another distribution. Open it from that distribution.
-
-### Packaging
-
-```bash
-bun run desktop:package -- --linux AppImage deb   # Linux, on Linux
-bun run desktop:package -- --win nsis             # Windows installer, on Windows
-bun run desktop:package -- --mac dmg              # macOS disk image, on macOS
-```
-
-Output goes to `release/dist/`. The installers are unsigned: set `CSC_LINK` and `CSC_KEY_PASSWORD` (and remove `identity: null` from `electron-builder.yml`) to sign. Installing the `.deb` creates the `local-workbench` command at `/usr/bin`.
-
-CI (`.github/workflows/desktop.yml`) runs the checks, the end-to-end acceptance test under Xvfb on Linux, and builds each installer on its own platform runner.
-
-### What is verified
-
-- Linux: unit tests (192), typecheck, lint, production build, the acceptance test (39 checks) against the development build, the unpacked and AppImage builds, and the installed `.deb` (install, `--version`, acceptance, removal).
-- Development server: the desktop window loads `bun run dev` with the development policy.
-- WSL: the WSL code paths are exercised with simulated environment variables on Linux. They have **not** been run on a real WSL distribution, nor are Windows or macOS builds run.
-
 ## Project Structure
 
 ```
 src/
 ├── app/
-│   ├── api/ai/              # AI backend routes (server-side)
+│   ├── api/ai/              # /api/ai/task (streamed AI tasks) and /api/ai/models (provider status)
+│   ├── api/archify/render/  # Archify live-diagram render (server-side)
 │   ├── layout.tsx
 │   └── page.tsx             # Entry point, loads WorkbenchShell
 ├── documents/
@@ -234,18 +154,22 @@ src/
 │   ├── adapters/            # Format adapters (markdown, json, yaml, toml, mermaid, xml, toon)
 │   └── bootstrap.ts         # Registers all adapters on client
 ├── features/workbench/
-│   ├── shell/               # WorkbenchShell, ThemeProvider, WorkspaceSwitcher
+│   ├── shell/               # WorkbenchShell (desktop, tablet and phone layouts), header, WorkspaceSwitcher
 │   ├── file-explorer/       # Lazy tree + workspace switcher
 │   ├── tabs/                # Editor tabs with dirty indicators
 │   ├── editor/              # Monaco wrapper (dynamic, ssr:false)
 │   ├── preview/             # PreviewPane dispatching to renderers
 │   ├── diagnostics/         # Problems panel
-│   ├── ai-assistant/        # Chat + 5 structured actions
+│   ├── ai/                  # Assistant store and controller, document port, workspace snapshot
+│   ├── ai-assistant/        # Panel, thread, composer, and proposal / Archify / review views
+│   ├── dialogs/             # Confirm and prompt dialogs (replace native confirm and prompt)
 │   ├── command-palette/     # Cmdk fuzzy search + actions
 │   ├── status-bar/          # Sticky footer + workspace switcher
-│   ├── store.ts             # Zustand store (tabs, sessions, diagnostics, AI)
+│   ├── store.ts             # Zustand store (tabs, sessions, diagnostics, layout)
 │   └── hooks.ts             # useDebounced / useDebouncedWithPending
 ├── lib/preview-renderers/   # Markdown / StructuredData / Mermaid / XmlTree / TextFallback
+├── lib/ai/                  # Task contract, runner, parsers, SSE endpoint (tasks/), browser client (client/), provider clients (server.ts), generative UI (generative-ui/)
+├── lib/archify/             # Archify contract, detection, render service (server-only parts marked)
 ├── platform/
 │   ├── filesystem/          # WorkspaceFileSystem contract + In-memory & FSA impls
 │   └── persistence/         # IndexedDB (recent workspaces, recovery drafts, settings)
@@ -262,17 +186,80 @@ src/
 | `⌘/Ctrl + Shift + A` | Toggle AI Assistant panel |
 | `⌘/Ctrl + S` | Save active file |
 
-## AI Assistant Actions
+## Responsive Layouts
 
-Click action chips in the AI panel:
+| Width | Layout |
+| --- | --- |
+| 1280 px and wider | Files, editor, preview and assistant side by side. Each pane resizes, and the sizes are remembered in the browser. |
+| 768 to 1279 px | Files, editor and preview side by side. The assistant opens as a sheet. |
+| Under 768 px | One pane at a time, switched with the Editor and Preview tabs. Files, problems and the assistant open as sheets. |
 
-- **Explain** — Describes current document + flags ambiguity
-- **Fix** — Proposes corrected version (review diff, click Apply/Discard)
-- **Convert** — Convert between JSON/YAML/TOML/XML/TOON/Markdown
-- **Diagram** — Generate Mermaid diagram from description
-- **Improve** — Rewrite Markdown preserving structure & code blocks
+The keyboard shortcuts work at every width. On phones the status bar shows problem counts as icons beside their numbers.
 
-Or chat directly in the textbox — responses stream via SSE.
+## AI Assistant
+
+The assistant sends every request to one endpoint, `POST /api/ai/task`. The document and workspace text reach the model as delimited data, and the prompt tells the model to treat them as data, not instructions.
+
+- **Chat** streams its answer with the open document as context. Long documents are windowed to 48,000 characters: the first 20 lines stay, and a window around the cursor or the first problem fills the rest. When the history is full, the oldest turns drop first.
+- **Explain** describes the open document and flags ambiguous parts.
+- **Fix** proposes a corrected document. It opens as a proposal with a diff, Apply and Discard.
+- **Improve** rewrites Markdown in a concise, detailed or friendly tone, keeping its structure and code blocks.
+- **Convert** targets JSON, JSONC, JSON5, YAML, TOML, TOON, XML or Markdown. A supported pair converts in-process and is labelled "No model used". Any other pair goes to the model, and the result is labelled as model output. The result is saved as a new file with the target extension, and the source is left as it is.
+- **Diagram** writes a Mermaid flowchart, sequence, state, ER or class diagram to `diagrams/<slug>.mmd`.
+- **Archify diagram** generates an Archify IR document for one of the ten diagram types. Each attempt is checked by Archify's delivery gate, and the gate's messages go back to the model, for up to three attempts. Save as a new file keeps a diagram that still fails the gate, and its preview shows the failure. Replacing the open document needs a diagram that passed the gate, and a confirmation.
+- **Architecture review** reads a bounded workspace snapshot (60 files, 4,000 characters each, 120,000 in total) and returns up to six candidates. Each candidate is rated Strong, Worth exploring or Speculative, and carries its files, problem, solution, wins, and before and after Mermaid diagrams. **Explore** sends a candidate to the chat as a follow-up.
+
+Proposals and safety:
+
+- **Apply** writes through the editor, so **Ctrl+Z** undoes it.
+- If the document changed after the proposal was made, Apply asks before it replaces the newer text.
+- **Stop** cancels the run. The partial answer stays, marked as stopped.
+- Without a provider, the panel says why, and the rest of the workbench works.
+
+## AI Task API
+
+`POST /api/ai/task` takes an `application/json` body of at most 6 MiB. Its `task` field is one of `chat`, `explain`, `fix`, `convert`, `improve-docs`, `generate-diagram`, `archify-diagram` or `architecture-review`. A request that fails validation gets HTTP 400 (`invalid-request`, with an `issues` list) or 413 (`too-large`) before anything runs. An accepted request streams `text/event-stream` frames, each one a `data: {json}` line:
+
+| Event | Fields | Meaning |
+| --- | --- | --- |
+| `status` | `message` | Progress, such as a conversion going to the model. |
+| `delta` | `text` | A chunk of streamed text. |
+| `result` | `result` | The final value: `text`, `edit`, `archify` or `review`. |
+| `error` | `code`, `message` | The run failed. `code` is `provider-unavailable`, `provider-error`, `runtime-unavailable`, `unparseable-output` or `internal`. |
+
+A closed connection cancels the run, so no model call outlives the page that asked for it. `GET /api/ai/models` reports the configured provider, whether it is available, the reason when it is not, and the models it offers.
+
+## Archify Live Diagrams
+
+Open an [Archify](https://github.com/tt-a1i/archify) IR document (a `.json` file whose top-level `diagram_type` is `architecture`, `workflow`, `sequence`, `dataflow`, `lifecycle`, `erd`, `tree`, `class`, `timeline` or `waterfall`) and the preview pane renders it as an interactive diagram. Edits re-render after a short pause. The sample workspace includes one (`diagrams/local-workbench.architecture.json`).
+
+- **Verified output only.** HTML is shown only after Archify's delivery gates pass (schema, layout, HTML/SVG and route checks) and the receipt's digest matches the rendered bytes.
+- **The last good revision stays.** An incomplete or invalid edit keeps the last verified diagram on screen, with the failure above it. Each failure shows Archify's rule code and its supported fix, and the same entries appear in **Problems**.
+- **Quality profiles.** `showcase` (default) fails composition issues. `standard` reports them as warnings. Warnings appear in the preview and in Problems.
+- **Download HTML** saves the verified, self-contained file. Nothing is written to your workspace.
+- **Sandboxed.** The diagram runs in a frame that allows scripts only, with no access to the workbench's origin, storage or cookies.
+
+**How it works.** `POST /api/archify/render` receives the editor draft (never a file path) and runs Archify's own `deliver --json` pipeline, the same gate `archify preview` uses, in a private temporary directory. The runtime is the vendored Archify 3.2.0 tree in `vendor/archify`, which runs under Node.js 18 or later (`node` on `PATH` when the server itself runs under Bun). Archify's update check is disabled for these renders. The browser keeps the last verified revision; the server caches identical renders.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `ARCHIFY_RENDER_TIMEOUT_MS` | `20000` | Wall-clock budget for one render (minimum 1000). |
+| Document size | 1 MiB | Larger documents are refused before Archify starts. |
+| Concurrency | 2 running, 8 queued | Further renders are answered `busy` and retried on the next edit. |
+
+**Not supported in the live preview.**
+- Explainer documents (Archify's Markdown-based explainer type). Use the Archify CLI.
+- Repository evidence (`sources`). Without a pinned `meta.repository`, Archify reports `repository-evidence/repository-required`.
+- Remote brand captures (`brand: { url, sha256 }`). Archify would fetch that URL while rendering, so the workbench refuses it with `brand/remote-capture-disabled`. Built-in brand IDs work (`archify brands` lists them).
+
+**Updating the runtime.** The runtime is a pinned copy of the Archify Skill's runtime files. `vendor/archify/VENDOR.json` records the upstream version and commit, and the Apache-2.0 license and notices are included.
+
+```bash
+node scripts/sync-archify.mjs --from /path/to/tt-a1i/archify          # copy the runtime subset
+node scripts/sync-archify.mjs --from /path/to/tt-a1i/archify --check  # verify it matches the checkout
+```
+
+After syncing, run `bun run test`. The archify tests render all ten fixtures through the vendored runtime.
 
 ## Browser Support
 
@@ -316,10 +303,10 @@ The `next.config.ts` has `output: "standalone"` for self-contained deployment.
 
 | Issue | Solution |
 | ------- | ---------- |
-| AI shows "offline" | Configure `OPENAI_API_KEY` in the server environment |
+| AI shows "offline" | The assistant panel shows the reason. Set `OPENAI_API_KEY` (or `AI_PROVIDER=ollama`) in the server environment |
 | "Open folder…" disabled | Use Chrome/Edge desktop; Firefox/Safari use sample workspace |
 | Dev server dies on terminal close | Use `nohup bun run dev > dev.log 2>&1 & disown` or `tmux`/`screen` |
-| Monaco loads forever | Check network; for offline, copy `monaco-editor/min/vs` to `public/vs` |
+| Monaco loads forever | Monaco is fetched from cdn.jsdelivr.net at runtime, so the editor needs network access. There is no bundled offline copy yet |
 | Hot reload stuck | Restart dev server; clear cache: `rm -rf .next` |
 
 ## License

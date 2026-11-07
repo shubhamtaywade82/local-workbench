@@ -6,6 +6,7 @@ import { X, Circle } from "lucide-react";
 import { useWorkbench } from "@/features/workbench/store";
 import { cn } from "@/lib/utils";
 import { fileIconColor } from "@/features/workbench/file-explorer/file-explorer";
+import { confirmAction } from "@/features/workbench/dialogs/dialog-store";
 
 export function EditorTabs() {
   const openTabs = useWorkbench((s) => s.openTabs);
@@ -43,9 +44,17 @@ export function EditorTabs() {
             </span>
             <button
               className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-foreground/10"
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
-                if (isDirty && !confirm(`${tab.name} has unsaved changes. Close anyway?`)) {
+                if (
+                  isDirty &&
+                  !(await confirmAction({
+                    title: "Close with unsaved changes?",
+                    description: `${tab.name} has unsaved changes. Closing the tab removes them from the editor.`,
+                    confirmLabel: "Close tab",
+                    destructive: true,
+                  }))
+                ) {
                   return;
                 }
                 closeTab(tab.path);

@@ -21,6 +21,7 @@ class TextFallbackAdapter implements DocumentAdapter {
 class DocumentRegistry {
   private adapters: DocumentAdapter[] = [];
   private byExtension = new Map<string, DocumentAdapter>();
+  private contentMatchers: DocumentAdapter[] = [];
   private fallback: DocumentAdapter = new TextFallbackAdapter();
 
   register(adapter: DocumentAdapter): void {
@@ -32,12 +33,25 @@ class DocumentRegistry {
         this.byExtension.set(ext.toLowerCase(), adapter);
       }
     }
+    if (adapter.matchesContent) this.contentMatchers.push(adapter);
   }
 
   /** Returns the adapter for the given path, or the text fallback. */
   resolve(filePath: string): DocumentAdapter {
     const ext = this.extractExtension(filePath);
     return this.byExtension.get(ext) ?? this.fallback;
+  }
+
+  /**
+   * Like resolve(), but content matchers run first, in registration order. Use
+   * it wherever the source text is known, so a document can claim an extension
+   * that another adapter owns.
+   */
+  resolveForContent(filePath: string, source: string): DocumentAdapter {
+    for (const adapter of this.contentMatchers) {
+      if (adapter.matchesContent?.(source, filePath)) return adapter;
+    }
+    return this.resolve(filePath);
   }
 
   /** Returns the adapter by id, or the text fallback. */

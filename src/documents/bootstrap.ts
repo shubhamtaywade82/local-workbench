@@ -18,6 +18,9 @@ export async function ensureAdaptersRegistered(): Promise<void> {
   const { tomlAdapter } = await import("@/documents/adapters/toml/toml");
   documentRegistry.register(markdownAdapter);
   documentRegistry.register(jsonAdapter);
+  // Content-matched: claims .json documents that declare an Archify diagram_type.
+  const { archifyAdapter } = await import("@/documents/adapters/archify/archify");
+  documentRegistry.register(archifyAdapter);
   documentRegistry.register(yamlAdapter);
   documentRegistry.register(tomlAdapter);
 

@@ -14,6 +14,7 @@ import { StructuredDataRenderer } from "@/lib/preview-renderers/structured-data-
 import { MermaidRenderer } from "@/lib/preview-renderers/mermaid-renderer";
 import { XmlTreeRenderer } from "@/lib/preview-renderers/xml-tree-renderer";
 import { TextFallbackRenderer } from "@/lib/preview-renderers/text-fallback-renderer";
+import { ArchifyPreview } from "@/features/workbench/preview/archify/archify-preview";
 import { AlertCircle, Eye } from "lucide-react";
 
 export function PreviewPane() {
@@ -26,12 +27,15 @@ export function PreviewPane() {
 
   const draftText = session?.draftText ?? "";
   const debouncedText = useDebounced(draftText, 200);
+  // Keyed on the path, not the session object: the session changes on every keystroke,
+  // and the preview model should only be rebuilt once the debounced text changes.
+  const sessionPath = session?.path ?? null;
 
   const preview = useMemo<PreviewModel | null>(() => {
-    if (!session) return null;
-    const adapter = documentRegistry.resolve(session.path);
+    if (sessionPath === null) return null;
+    const adapter = documentRegistry.resolveForContent(sessionPath, debouncedText);
     try {
-      return adapter.createPreview(debouncedText, session.path);
+      return adapter.createPreview(debouncedText, sessionPath);
     } catch (err) {
       return {
         kind: "text-fallback",
@@ -39,7 +43,7 @@ export function PreviewPane() {
         language: "plaintext",
       };
     }
-  }, [debouncedText, session]);
+  }, [debouncedText, sessionPath]);
 
   if (!activeTab || !session || !preview) {
     return (
@@ -95,6 +99,16 @@ function PreviewContent({ preview }: { preview: PreviewModel }) {
       );
     case "text-fallback":
       return <TextFallbackRenderer source={preview.source} language={preview.language} />;
+    case "archify":
+      return (
+        // Keyed by file: last-good state must never carry over from one document to another.
+        <ArchifyPreview
+          key={preview.filePath}
+          source={preview.source}
+          diagramType={preview.diagramType}
+          filePath={preview.filePath}
+        />
+      );
     default:
       return (
         <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -119,6 +133,8 @@ function previewTitle(preview: PreviewModel): string {
       return "HTML preview";
     case "text-fallback":
       return "Preview";
+    case "archify":
+      return `Archify · ${preview.diagramType}`;
   }
 }
 
