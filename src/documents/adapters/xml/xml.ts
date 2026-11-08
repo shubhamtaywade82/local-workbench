@@ -25,7 +25,7 @@ function rangeFromLineCol(line?: number, col?: number): Diagnostic["range"] {
 
 class XmlAdapter implements DocumentAdapter {
   readonly id = "xml";
-  readonly extensions = ["xml", "xsd", "svg", "xsl", "rss", "atom"] as const;
+  readonly extensions = ["xml", "xsd", "xsl", "rss", "atom"] as const;
   readonly languageId = "xml";
   readonly displayName = "XML";
 

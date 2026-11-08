@@ -10,3 +10,6 @@ export { mermaidAdapter } from "./mermaid/mermaid";
 export { xmlAdapter } from "./xml/xml";
 export { toonAdapter, parseToon, toonStringify } from "./toon/toon";
 export { htmlAdapter } from "./html/html";
+export { csvAdapter } from "./csv/csv";
+export { svgAdapter } from "./svg/svg";
+export { codeAdapters } from "./code/code";

@@ -22,6 +22,7 @@ import {
 } from "@/platform/filesystem/workspace-fs";
 import { ServerWorkspace, type ServerRootInfo } from "@/platform/filesystem/server-workspace";
 import { confirmAction } from "@/features/workbench/dialogs/dialog-store";
+import { notify } from "@/features/workbench/notify";
 import { SAMPLE_FILES, SAMPLE_WORKSPACE_NAME } from "@/platform/filesystem/sample-workspace";
 import {
   addRecentWorkspace,
@@ -266,6 +267,11 @@ export async function openFileFromWorkspace(
   fs: WorkspaceFileSystem,
   path: string
 ): Promise<void> {
+  if (!documentRegistry.isSupported(path)) {
+    const fileName = path.split("/").pop() ?? path;
+    notify(`"${fileName}" has an unsupported format and cannot be opened.`, "warning");
+    return;
+  }
   const adapter = documentRegistry.resolve(path);
   const content = await fs.readFile(path);
   useWorkbench.getState().openTab(

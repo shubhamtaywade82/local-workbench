@@ -14,6 +14,10 @@ import { StructuredDataRenderer } from "@/lib/preview-renderers/structured-data-
 import { MermaidRenderer } from "@/lib/preview-renderers/mermaid-renderer";
 import { XmlTreeRenderer } from "@/lib/preview-renderers/xml-tree-renderer";
 import { TextFallbackRenderer } from "@/lib/preview-renderers/text-fallback-renderer";
+import { TableRenderer } from "@/lib/preview-renderers/table-renderer";
+import { SvgRenderer } from "@/lib/preview-renderers/svg-renderer";
+import { CodePreviewRenderer } from "@/lib/preview-renderers/code-preview-renderer";
+import { DiffPreviewRenderer } from "@/lib/preview-renderers/diff-preview-renderer";
 import { ArchifyPreview } from "@/features/workbench/preview/archify/archify-preview";
 import { AlertCircle, Eye } from "lucide-react";
 
@@ -51,6 +55,19 @@ export function PreviewPane() {
         <PreviewHeader title="Preview" path={null} mode={previewMode} setMode={setPreviewMode} />
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
           No file open
+        </div>
+      </div>
+    );
+  }
+
+  if (!documentRegistry.isSupported(session.path)) {
+    return (
+      <div className="flex h-full flex-col bg-card">
+        <PreviewHeader title="Unsupported file" path={session.path} mode={previewMode} setMode={setPreviewMode} />
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-xs text-muted-foreground">
+          <AlertCircle className="h-6 w-6 opacity-40 text-muted-foreground" />
+          <div className="font-semibold text-foreground">No preview available</div>
+          <div>This file format is not supported for preview.</div>
         </div>
       </div>
     );
@@ -100,6 +117,14 @@ function PreviewContent({ preview }: { preview: PreviewModel }) {
           className="h-full w-full border-0 bg-white"
         />
       );
+    case "table":
+      return <TableRenderer preview={preview} />;
+    case "svg":
+      return <SvgRenderer source={preview.source} />;
+    case "code":
+      return <CodePreviewRenderer source={preview.source} language={preview.language} />;
+    case "diff":
+      return <DiffPreviewRenderer source={preview.source} />;
     case "text-fallback":
       return <TextFallbackRenderer source={preview.source} language={preview.language} />;
     case "archify":
@@ -134,6 +159,14 @@ function previewTitle(preview: PreviewModel): string {
       return "XML tree";
     case "sandboxed-html":
       return "HTML preview";
+    case "table":
+      return `Table (${preview.format.toUpperCase()})`;
+    case "svg":
+      return "SVG graphic";
+    case "code":
+      return `${preview.language.toUpperCase()} preview`;
+    case "diff":
+      return "Diff preview";
     case "text-fallback":
       return "Preview";
     case "archify":

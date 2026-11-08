@@ -12,7 +12,7 @@ import { useWorkbench } from "@/features/workbench/store";
 import { useEffect, useMemo, useRef } from "react";
 import { useDebouncedWithPending } from "@/features/workbench/hooks";
 import { documentRegistry } from "@/documents/core/registry";
-import { EditorEmptyState } from "./editor-empty-state";
+import { EditorEmptyState, UnsupportedEditorState } from "./editor-empty-state";
 import type { Diagnostic } from "@/documents/core/types";
 import { registerEditor } from "@/features/workbench/editor/editor-bridge";
 import { useBreakpoint } from "@/lib/hooks/use-breakpoint";
@@ -62,6 +62,7 @@ export function EditorPane() {
     s.activeTab ? s.sessions[s.activeTab] : null
   );
   const updateDraft = useWorkbench((s) => s.updateDraft);
+  const closeTab = useWorkbench((s) => s.closeTab);
   const setDiagnostics = useWorkbench((s) => s.setDiagnostics);
   const setArchifyDiagnostics = useWorkbench((s) => s.setArchifyDiagnostics);
   const diagnosticsVisible = useWorkbench((s) => s.diagnosticsVisible);
@@ -222,6 +223,15 @@ export function EditorPane() {
 
   if (!activeTab || !session) {
     return <EditorEmptyState />;
+  }
+
+  if (!documentRegistry.isSupported(session.path)) {
+    return (
+      <UnsupportedEditorState
+        path={session.path}
+        onClose={() => closeTab(session.path)}
+      />
+    );
   }
 
   return (

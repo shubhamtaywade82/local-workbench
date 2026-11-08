@@ -66,6 +66,16 @@ export type PreviewModel =
       diagramType: ArchifyDiagramType;
       filePath: string;
     }
+  | {
+      kind: "table";
+      format: "csv" | "tsv";
+      headers: string[];
+      rows: string[][];
+      source: string;
+    }
+  | { kind: "svg"; source: string }
+  | { kind: "code"; source: string; language: string }
+  | { kind: "diff"; source: string }
   | { kind: "text-fallback"; source: string; language: string };
 
 export interface ParseSuccess {

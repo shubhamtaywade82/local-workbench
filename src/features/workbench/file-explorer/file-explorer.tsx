@@ -170,6 +170,11 @@ export function FileExplorer() {
               expanded={expanded}
               setExpanded={setExpanded}
               onOpen={async (path) => {
+                if (!documentRegistry.isSupported(path)) {
+                  const fileName = path.split("/").pop() ?? path;
+                  notify(`"${fileName}" has an unsupported format and cannot be opened.`, "warning");
+                  return;
+                }
                 const fs = controller.getFs();
                 if (!fs) return;
                 await openFileFromWorkspace(fs, path);
@@ -254,6 +259,7 @@ function TreeNode({
   }, [isOpen, entry.path, entry.isDirectory]);
 
   const padding = 8 + depth * 12;
+  const isSupported = entry.isDirectory || documentRegistry.isSupported(entry.path);
 
   return (
     <div>
@@ -261,10 +267,11 @@ function TreeNode({
         onClick={toggle}
         className={cn(
           "flex w-full items-center gap-1 py-1 pr-2 text-left hover:bg-sidebar-accent/60",
-          isActive && "bg-sidebar-accent"
+          isActive && "bg-sidebar-accent",
+          !isSupported && "opacity-60"
         )}
         style={{ paddingLeft: padding }}
-        title={entry.path}
+        title={isSupported ? entry.path : `${entry.path} (Unsupported file format)`}
       >
         {entry.isDirectory ? (
           <>
@@ -288,6 +295,11 @@ function TreeNode({
         <span className={cn("truncate", isActive && "font-medium")}>
           {entry.name}
         </span>
+        {!isSupported && (
+          <span className="ml-auto rounded border border-border/50 bg-muted/40 px-1 py-0.5 text-[9px] font-mono uppercase text-muted-foreground">
+            unsupported
+          </span>
+        )}
         {isDirty && <span className="ml-auto text-amber-500">●</span>}
       </button>
       {entry.isDirectory && isOpen && entry.children && entry.children.length > 0 && (
@@ -354,6 +366,47 @@ export function fileIconColor(path: string): string | undefined {
     case "html":
     case "htm":
       return "text-orange-600";
+    case "csv":
+    case "tsv":
+    case "tab":
+      return "text-emerald-600";
+    case "svg":
+      return "text-amber-500";
+    case "ts":
+    case "tsx":
+      return "text-blue-500";
+    case "js":
+    case "jsx":
+    case "mjs":
+    case "cjs":
+      return "text-yellow-400";
+    case "py":
+    case "pyw":
+      return "text-emerald-400";
+    case "sh":
+    case "bash":
+    case "zsh":
+      return "text-lime-500";
+    case "sql":
+      return "text-indigo-400";
+    case "css":
+    case "scss":
+    case "less":
+      return "text-cyan-500";
+    case "diff":
+    case "patch":
+      return "text-teal-500";
+    case "dockerfile":
+      return "text-blue-400";
+    case "graphql":
+    case "gql":
+      return "text-pink-500";
+    case "ini":
+    case "conf":
+    case "cfg":
+    case "env":
+    case "properties":
+      return "text-slate-400";
     default:
       return undefined;
   }

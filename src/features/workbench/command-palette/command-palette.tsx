@@ -88,6 +88,12 @@ export function CommandPalette() {
   );
 
   async function openFile(path: string) {
+    if (!documentRegistry.isSupported(path)) {
+      const fileName = path.split("/").pop() ?? path;
+      notify(`"${fileName}" has an unsupported format and cannot be opened.`, "warning");
+      setOpen(false);
+      return;
+    }
     // Read file content via the controller and open a tab.
     const { useWorkspaceController, openFileFromWorkspace } = await import(
       "@/platform/filesystem/use-workspace-controller"

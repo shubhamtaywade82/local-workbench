@@ -69,9 +69,13 @@ class DocumentRegistry {
   }
 
   private extractExtension(filePath: string): string {
-    const dot = filePath.lastIndexOf(".");
-    if (dot < 0 || dot === filePath.length - 1) return "";
-    return filePath.slice(dot + 1).toLowerCase();
+    const base = filePath.split("/").pop()?.toLowerCase() ?? "";
+    if (base === "dockerfile" || base === "makefile" || base === "license" || base === "procfile") {
+      return base;
+    }
+    const dot = base.lastIndexOf(".");
+    if (dot < 0 || dot === base.length - 1) return "";
+    return base.slice(dot + 1).toLowerCase();
   }
 
   get fallbackAdapter(): DocumentAdapter {
