@@ -120,3 +120,122 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+  .prose {
+    color: var(--foreground);
+    line-height: 1.625;
+  }
+  .prose h1 {
+    font-size: 1.875rem;
+    font-weight: 700;
+    line-height: 1.25;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.375rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .prose h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.3;
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .prose h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+    margin-top: 1rem;
+    margin-bottom: 0.375rem;
+  }
+  .prose h4 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-top: 0.875rem;
+    margin-bottom: 0.25rem;
+  }
+  .prose h5,
+  .prose h6 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: 0.75rem;
+    margin-bottom: 0.25rem;
+  }
+  .prose p {
+    margin-top: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .prose ul {
+    list-style-type: disc;
+    padding-left: 1.5rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .prose ol {
+    list-style-type: decimal;
+    padding-left: 1.5rem;
+    margin-top: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .prose li {
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+  }
+  .prose li > ul,
+  .prose li > ol {
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+  }
+  .prose blockquote {
+    border-left: 3px solid var(--primary);
+    padding-left: 1rem;
+    font-style: italic;
+    color: var(--muted-foreground);
+    margin-top: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  .prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 0.75rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.875rem;
+  }
+  .prose th {
+    border: 1px solid var(--border);
+    padding: 0.5rem 0.75rem;
+    font-weight: 600;
+    background-color: var(--muted);
+    text-align: left;
+  }
+  .prose td {
+    border: 1px solid var(--border);
+    padding: 0.5rem 0.75rem;
+  }
+  .prose hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .prose a {
+    color: oklch(0.6 0.18 240);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .dark .prose a {
+    color: oklch(0.75 0.15 240);
+  }
+  .prose code:not(pre code) {
+    background-color: var(--muted);
+    color: var(--foreground);
+    border-radius: 0.25rem;
+    padding: 0.125rem 0.375rem;
+    font-size: 0.85em;
+    font-family: var(--font-mono);
+  }
+}
+
